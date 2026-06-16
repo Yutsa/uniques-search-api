@@ -1,0 +1,4 @@
+# Normalize text files; force LF on shell scripts so a Windows checkout doesn't land
+# CRLF (a CRLF shebang breaks `exec` of the entrypoint inside the Linux dev container).
+* text=auto
+*.sh text eol=lf

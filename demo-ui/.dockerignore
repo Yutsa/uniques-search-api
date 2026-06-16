@@ -1,0 +1,8 @@
+# Keep the build context lean and never copy host artifacts into the image
+# (node_modules is reinstalled by `npm ci`; dist is a build output).
+node_modules
+dist
+.env
+.env.local
+*.local
+.DS_Store

@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+# Download the prebuilt card index once, into the /app/build volume, before starting
+# the server. The uniques-http-api binary loads the index from disk (config
+# index.source = "disk") and does NOT fetch it itself, so we provide it here. The
+# named volume persists it, so this only downloads on the first start.
+#
+# INDEX_PATH wins if set; otherwise we use the same path the app's default.toml
+# resolves to (./build/full_index.tar.zst from /app). The loader reads the .tar.zst
+# archive directly — no extraction (and no zstd) needed at runtime.
+
+INDEX_FILE="${INDEX_PATH:-/app/build/full_index.tar.zst}"
+INDEX_URL="https://storage.googleapis.com/taum-reunion-public/index/full_index.tar.zst"
+
+if [ ! -f "$INDEX_FILE" ]; then
+  echo "[uniques] index not found at $INDEX_FILE — downloading (~270 MB) from GCS..."
+  mkdir -p "$(dirname "$INDEX_FILE")"
+  curl -fSL "$INDEX_URL" -o "$INDEX_FILE.partial"
+  # Guard against a 0-byte / truncated "success": don't promote (and then "skip
+  # download" forever on the next start) an unusable file.
+  [ -s "$INDEX_FILE.partial" ] || { echo "[uniques] downloaded index is empty — aborting"; rm -f "$INDEX_FILE.partial"; exit 1; }
+  mv "$INDEX_FILE.partial" "$INDEX_FILE"
+  echo "[uniques] index downloaded."
+else
+  echo "[uniques] index present at $INDEX_FILE — skipping download."
+fi
+
+exec "$@"
