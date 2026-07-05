@@ -226,6 +226,22 @@ pub(crate) fn test_state() -> AppState {
             recall_cost[3] = RoaringBitmap::from_iter([5]);
             stats.insert(StatField::RecallCost, recall_cost);
 
+            let mut forest_power: [RoaringBitmap; 16] =
+                std::array::from_fn(|_| RoaringBitmap::new());
+            forest_power[1] = RoaringBitmap::from_iter([2]);
+            forest_power[4] = RoaringBitmap::from_iter([5]);
+            stats.insert(StatField::ForestPower, forest_power);
+
+            let mut mountain_power: [RoaringBitmap; 16] =
+                std::array::from_fn(|_| RoaringBitmap::new());
+            mountain_power[2] = RoaringBitmap::from_iter([2, 5]);
+            stats.insert(StatField::MountainPower, mountain_power);
+
+            let mut ocean_power: [RoaringBitmap; 16] =
+                std::array::from_fn(|_| RoaringBitmap::new());
+            ocean_power[0] = RoaringBitmap::from_iter([2, 5]);
+            stats.insert(StatField::OceanPower, ocean_power);
+
             stats
         },
         factions: {

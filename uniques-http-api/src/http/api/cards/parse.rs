@@ -156,6 +156,9 @@ pub(crate) fn parse_request(
     }
     let main_cost = parse_cost_predicate(params, "mainCost")?;
     let recall_cost = parse_cost_predicate(params, "recallCost")?;
+    let forest_power = parse_cost_predicate(params, "forestPower")?;
+    let mountain_power = parse_cost_predicate(params, "mountainPower")?;
+    let ocean_power = parse_cost_predicate(params, "oceanPower")?;
     let name = parse_name(params);
     let debug_bga_trigram = params.contains_key("debug_bga_trigram");
     let with_families = params.contains_key("withFamilies");
@@ -174,6 +177,9 @@ pub(crate) fn parse_request(
         refs,
         main_cost,
         recall_cost,
+        forest_power,
+        mountain_power,
+        ocean_power,
         name,
         debug_bga_trigram,
         with_families,

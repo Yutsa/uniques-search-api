@@ -122,6 +122,30 @@ pub(crate) fn build_bitmap(
             pred,
         )?);
     }
+    if let Some(pred) = &req.forest_power {
+        groups.push(bitmap_for_cost_predicate(
+            state,
+            StatField::ForestPower,
+            "forestPower",
+            pred,
+        )?);
+    }
+    if let Some(pred) = &req.mountain_power {
+        groups.push(bitmap_for_cost_predicate(
+            state,
+            StatField::MountainPower,
+            "mountainPower",
+            pred,
+        )?);
+    }
+    if let Some(pred) = &req.ocean_power {
+        groups.push(bitmap_for_cost_predicate(
+            state,
+            StatField::OceanPower,
+            "oceanPower",
+            pred,
+        )?);
+    }
 
     if let Some(name) = &req.name {
         groups.push(state.name_search_index().bitmap_for_contains(state.catalog(), name));
@@ -1004,6 +1028,41 @@ mod tests {
         assert!(bmp.contains(5));
     }
 
+
+    #[test]
+    fn forest_power_range_filters_bitmap() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("forestPower[gte]".to_string(), vec!["2".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 1);
+        assert!(bmp.contains(5));
+    }
+
+    #[test]
+    fn mountain_power_exact_filters_bitmap() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("mountainPower".to_string(), vec!["2".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 2);
+        assert!(bmp.contains(2));
+        assert!(bmp.contains(5));
+    }
+
+    #[test]
+    fn ocean_power_anyof_filters_bitmap() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("oceanPower[]".to_string(), vec!["0".to_string(), "1".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 2);
+        assert!(bmp.contains(2));
+        assert!(bmp.contains(5));
+    }
 
     #[test]
     fn debug_bga_trigram_includes_main_and_echo_tcos() {
