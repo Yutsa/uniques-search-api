@@ -11,6 +11,8 @@
 | Yes       | `faction[]` | repeated array  | `faction[]=AX` | Filter by one or more faction codes.                                                                                                                                                                                                     |
 | Yes       | `name`      | string          | `name=Kelon`   | Case-insensitive substring match on character name (any locale). Accented characters match unaccented queries (e.g. `elementaire` matches `Élémentaire`, `boshi` matches `Issun-bōshi`). Whitespace-only values are ignored (no filter). |
 | Yes       | `format`    | string          | `format=standard` | Restrict results to a configured format (see [Format filters](#format-filters)). Only one format per request. If the parameter appears more than once, the **last** value wins. Requires `[formats]` in server config; otherwise any `format=` value returns `400 unknown format '{id}'`. |
+| Yes       | `collection` | string         | `collection=deck1` | Restrict results to a bitmap previously created via `POST /api/v2/collection/{id}` (see `collections` module). AND with other filters. `422 collection_not_loaded` if the id was never created. |
+| Yes       | `ref[]`     | repeated array  | `ref[]=ALT_CORE_B_AX_01_U_1` | Restrict results to an explicit, ad-hoc list of card references given directly in the query string — no `POST /api/v2/collection` round-trip needed. Alias: `ref=REF1,REF2,REF3` (CSV). References are OR'd together, then AND'd with every other active filter (`format`, `collection`, `faction`, etc.), same combination pattern as `collection`. Unknown or malformed references are silently ignored (they just never match) instead of causing an error. |
 
 
 ### Format filters

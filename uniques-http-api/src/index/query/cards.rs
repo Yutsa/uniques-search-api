@@ -103,6 +103,14 @@ pub(crate) fn build_bitmap(
         groups.push(union_requested_sets(state.set_bitmaps(), &req.sets));
     }
 
+    if !req.refs.is_empty() {
+        let ref_slices: Vec<&str> = req.refs.iter().map(String::as_str).collect();
+        groups.push(index_core::build_bitmap_from_ref_strs_lenient(
+            state.catalog(),
+            &ref_slices,
+        ));
+    }
+
     if let Some(pred) = &req.main_cost {
         groups.push(bitmap_for_cost_predicate(state, StatField::MainCost, "mainCost", pred)?);
     }
@@ -1101,5 +1109,88 @@ mod tests {
         .unwrap();
         assert!(!bmp.contains(2));
         assert_eq!(bmp.len(), 9);
+    }
+
+    #[test]
+    fn ref_filter_matches_explicit_references() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "ref".to_string(),
+            vec!["ALT_TEST_B_AX_01_U_3,ALT_TEST_B_AX_01_U_6".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert!(bmp.contains(2));
+        assert!(bmp.contains(5));
+        assert_eq!(bmp.len(), 2);
+    }
+
+    #[test]
+    fn ref_filter_ignores_unknown_and_malformed_references() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "ref".to_string(),
+            vec!["ALT_TEST_B_AX_01_U_3,ALT_BOGUS_B_ZZ_99_U_1,not-a-reference".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert!(bmp.contains(2));
+        assert_eq!(bmp.len(), 1);
+    }
+
+    #[test]
+    fn ref_filter_combines_with_format_via_and() {
+        let state = test_state();
+        let mut formats = FormatIndex::empty();
+        let mut allowed = RoaringBitmap::new();
+        allowed.insert_range(0..5); // 0,1,2,3,4 -- excludes card_index 5
+        formats.by_id.insert(
+            "std".into(),
+            LoadedFormat {
+                id: "std".into(),
+                status: FormatLoadStatus::Ready {
+                    negated: false,
+                    bitmap: allowed,
+                },
+            },
+        );
+
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("format".to_string(), vec!["std".to_string()]);
+        params.insert(
+            "ref".to_string(),
+            vec!["ALT_TEST_B_AX_01_U_3,ALT_TEST_B_AX_01_U_6".to_string()], // card_index 2, 5
+        );
+        let req = parse_request(
+            state.index().as_ref(),
+            &formats,
+            true,
+            &state.snapshot().collections,
+            &params,
+        )
+        .unwrap();
+        let bmp = build_bitmap(
+            state.index().as_ref(),
+            &formats,
+            &state.snapshot().collections,
+            &req,
+        )
+        .unwrap();
+        // card_index 5 is requested via ref but excluded by the format's allowed range.
+        assert!(bmp.contains(2));
+        assert!(!bmp.contains(5));
+        assert_eq!(bmp.len(), 1);
+    }
+
+    #[test]
+    fn ref_filter_absent_does_not_restrict_results() {
+        let state = test_state();
+        let params: QueryMultiMap = HashMap::new();
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert!(req.refs.is_empty());
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), state.index().manifest().total_bit_span as u64);
     }
 }

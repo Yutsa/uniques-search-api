@@ -166,6 +166,7 @@ pub struct CardsRequest {
     pub filters: AbilityFilters,
     pub factions: Vec<Faction>,
     pub sets: Vec<String>,
+    pub refs: Vec<String>,
     pub main_cost: Option<CostPredicate>,
     pub recall_cost: Option<CostPredicate>,
     pub name: Option<String>,

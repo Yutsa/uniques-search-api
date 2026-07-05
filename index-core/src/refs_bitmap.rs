@@ -54,6 +54,31 @@ pub fn build_bitmap_from_refs_file(refs_file: &Path, catalog: &Catalog) -> Resul
     Ok((refs_read, bitmap))
 }
 
+/// Union bitmap of catalog bits for the given card references, silently
+/// skipping any reference that fails to parse or is not present in the
+/// catalog (unlike [`build_bitmap_from_ref_strs`], never errors).
+///
+/// Intended for user-supplied ad-hoc reference lists (e.g. the `ref` query
+/// filter) where an unknown reference should simply not match, not reject
+/// the whole request.
+pub fn build_bitmap_from_ref_strs_lenient(catalog: &Catalog, refs: &[&str]) -> RoaringBitmap {
+    let mut bits = BTreeSet::new();
+    for reference in refs {
+        let Ok(parsed) = parse_card_reference(reference) else {
+            continue;
+        };
+        let Ok(bit) = catalog.lookup_bit(&parsed) else {
+            continue;
+        };
+        bits.insert(bit);
+    }
+    let mut bitmap = RoaringBitmap::new();
+    for bit in bits {
+        bitmap.insert(bit);
+    }
+    bitmap
+}
+
 pub fn validate_bitmap_span(bitmap: &RoaringBitmap, total_bit_span: u32) -> Result<()> {
     if let Some(max_bit) = bitmap.iter().max() {
         if max_bit >= total_bit_span {
