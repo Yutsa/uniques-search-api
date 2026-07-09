@@ -148,6 +148,7 @@ pub(crate) fn parse_request(
 
     let factions = parse_factions(params)?;
     let sets = parse_sets(params)?;
+    let refs = parse_refs(params);
     for code in &sets {
         if !state.set_bitmaps().by_set.contains_key(code) {
             return Err(bad_request(format!("invalid set value '{code}'")));
@@ -155,6 +156,9 @@ pub(crate) fn parse_request(
     }
     let main_cost = parse_cost_predicate(params, "mainCost")?;
     let recall_cost = parse_cost_predicate(params, "recallCost")?;
+    let forest_power = parse_cost_predicate(params, "forestPower")?;
+    let mountain_power = parse_cost_predicate(params, "mountainPower")?;
+    let ocean_power = parse_cost_predicate(params, "oceanPower")?;
     let name = parse_name(params);
     let debug_bga_trigram = params.contains_key("debug_bga_trigram");
     let with_families = params.contains_key("withFamilies");
@@ -170,8 +174,12 @@ pub(crate) fn parse_request(
         filters,
         factions,
         sets,
+        refs,
         main_cost,
         recall_cost,
+        forest_power,
+        mountain_power,
+        ocean_power,
         name,
         debug_bga_trigram,
         with_families,
@@ -354,6 +362,40 @@ fn parse_factions(params: &QueryMultiMap) -> ApiResult<Vec<Faction>> {
         }
     }
     Ok(out)
+}
+
+fn parse_refs(params: &QueryMultiMap) -> Vec<String> {
+    // Spec: ref[] repeated keys
+    // Convenience: ref=REF1,REF2,REF3 (CSV)
+    let mut refs: Vec<String> = Vec::new();
+    if let Some(values) = params.get("ref[]") {
+        for v in values {
+            for part in v.split(',') {
+                let s = part.trim();
+                if !s.is_empty() {
+                    refs.push(s.to_string());
+                }
+            }
+        }
+    }
+    if let Some(values) = params.get("ref") {
+        for v in values {
+            for part in v.split(',') {
+                let s = part.trim();
+                if !s.is_empty() {
+                    refs.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for reference in refs {
+        if !out.contains(&reference) {
+            out.push(reference);
+        }
+    }
+    out
 }
 
 fn parse_sets(params: &QueryMultiMap) -> ApiResult<Vec<String>> {
@@ -630,6 +672,48 @@ mod tests {
         params.insert("set[]".to_string(), vec!["NOPE".to_string()]);
         let err = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap_err();
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+    #[test]
+    fn parses_refs_from_repeated_or_csv_alias() {
+        let state = test_state();
+
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "ref[]".to_string(),
+            vec!["ALT_TEST_B_AX_01_U_3".to_string(), "ALT_TEST_B_AX_01_U_6".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert_eq!(req.refs.len(), 2);
+        assert!(req.refs.contains(&"ALT_TEST_B_AX_01_U_3".to_string()));
+        assert!(req.refs.contains(&"ALT_TEST_B_AX_01_U_6".to_string()));
+
+        let mut params2: QueryMultiMap = HashMap::new();
+        params2.insert(
+            "ref".to_string(),
+            vec!["ALT_TEST_B_AX_01_U_3,ALT_TEST_B_AX_01_U_6".to_string()],
+        );
+        let req2 = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params2).unwrap();
+        assert_eq!(req2.refs.len(), 2);
+    }
+
+    #[test]
+    fn refs_dedup_and_ignore_blank_entries() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "ref".to_string(),
+            vec!["ALT_TEST_B_AX_01_U_3, ,ALT_TEST_B_AX_01_U_3".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert_eq!(req.refs, vec!["ALT_TEST_B_AX_01_U_3".to_string()]);
+    }
+
+    #[test]
+    fn no_ref_param_yields_empty_refs() {
+        let state = test_state();
+        let params: QueryMultiMap = HashMap::new();
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert!(req.refs.is_empty());
     }
     #[test]
     fn cost_exact_array_range_parsing_and_mixing_rejected() {

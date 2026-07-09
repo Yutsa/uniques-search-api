@@ -21,5 +21,8 @@ pub mod set_code;
 pub mod stat_index;
 
 pub use faction_display::faction_display_name;
-pub use refs_bitmap::{build_bitmap_from_ref_strs, build_bitmap_from_refs_file, validate_bitmap_span};
+pub use refs_bitmap::{
+    build_bitmap_from_ref_strs, build_bitmap_from_ref_strs_lenient, build_bitmap_from_refs_file,
+    validate_bitmap_span,
+};
 pub use set_code::set_code;

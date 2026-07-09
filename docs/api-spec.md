@@ -11,12 +11,15 @@
 | Yes       | `faction[]` | repeated array  | `faction[]=AX` | Filter by one or more faction codes.                                                                                                                                                                                                     |
 | Yes       | `name`      | string          | `name=Kelon`   | Case-insensitive substring match on character name (any locale). Accented characters match unaccented queries (e.g. `elementaire` matches `Élémentaire`, `boshi` matches `Issun-bōshi`). Whitespace-only values are ignored (no filter). |
 | Yes       | `format`    | string          | `format=standard` | Restrict results to a configured format (see [Format filters](#format-filters)). Only one format per request. If the parameter appears more than once, the **last** value wins. Requires `[formats]` in server config; otherwise any `format=` value returns `400 unknown format '{id}'`. |
+| Yes       | `collection` | string         | `collection=deck1` | Restrict results to a bitmap previously created via `POST /api/v2/collection/{id}` (see `collections` module). AND with other filters. `422 collection_not_loaded` if the id was never created. |
+| Yes       | `ref[]`     | repeated array  | `ref[]=ALT_CORE_B_AX_01_U_1` | Restrict results to an explicit, ad-hoc list of card references given directly in the query string — no `POST /api/v2/collection` round-trip needed. Alias: `ref=REF1,REF2,REF3` (CSV). References are OR'd together, then AND'd with every other active filter (`format`, `collection`, `faction`, etc.), same combination pattern as `collection`. Unknown or malformed references are silently ignored (they just never match) instead of causing an error. |
 
 
 ### Format filters
 
 When the server is configured with a `[formats]` section, format definitions are loaded from a
-manifest-driven directory on disk. Each format is a JSON file listed in `manifest.json`:
+manifest-driven source — either a directory on disk or a `manifest.json` served over HTTP. Each
+format is a JSON file listed in `manifest.json`:
 
 ```json
 [
@@ -74,7 +77,16 @@ type = "disk"
 path = "./formats"
 ```
 
-`FORMATS_PATH` env overrides `formats.source.path`.
+Or pull the manifest (and sibling format files) over HTTP instead of from disk:
+
+```toml
+[formats.source]
+type = "http"
+manifest_url = "https://altered-reunion-formats-prod.s3.fr-par.scw.cloud/manifest.json"
+```
+
+Each manifest entry's `path` is resolved relative to `manifest_url` (i.e. as a sibling file next
+to `manifest.json`). `FORMATS_PATH` env overrides `formats.source.path` (disk source only).
 
 ### Numeric and stat filters
 
@@ -85,9 +97,9 @@ path = "./formats"
 | Yes       | `mainCost[gt]` / `mainCost[gte]` / `mainCost[lt]` / `mainCost[lte]` | ranged integer          | `mainCost[gte]=3`               | Main cost greater/less than comparisons. |
 | Yes       | `mainCost[]`                                                        | repeated array          | `mainCost[]=2&mainCost[]=3`     | Match any of several exact values.       |
 | Yes       | `recallCost` / `recallCost[...]` / `recallCost[]`                   | integer or ranged/array | `recallCost[lte]=1`             | Recall cost filter.                      |
-| No        | `oceanPower` / `oceanPower[...]` / `oceanPower[]`                   | integer or ranged/array | `oceanPower[]=0&oceanPower[]=1` | Ocean power filter.                      |
-| No        | `mountainPower` / `mountainPower[...]` / `mountainPower[]`          | integer or ranged/array | `mountainPower[gt]=5`           | Mountain power filter.                   |
-| No        | `forestPower` / `forestPower[...]` / `forestPower[]`                | integer or ranged/array | `forestPower=2`                 | Forest power filter.                     |
+| Yes       | `oceanPower` / `oceanPower[...]` / `oceanPower[]`                   | integer or ranged/array | `oceanPower[]=0&oceanPower[]=1` | Ocean power filter.                      |
+| Yes       | `mountainPower` / `mountainPower[...]` / `mountainPower[]`          | integer or ranged/array | `mountainPower[gt]=5`           | Mountain power filter.                   |
+| Yes       | `forestPower` / `forestPower[...]` / `forestPower[]`                | integer or ranged/array | `forestPower=2`                 | Forest power filter.                     |
 
 
 ### Effect filters

@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::config::{FormatsSettings, Settings};
 use crate::formats::loader::{load_format_index, read_manifest_versions, FormatIndex};
+use crate::formats::source::FormatsSource;
 use crate::http::state::{AppState, QuerySnapshot};
 use tokio::time::MissedTickBehavior;
 
@@ -30,8 +31,10 @@ async fn formats_reload_tick(state: &Arc<AppState>, settings: &Settings) -> anyh
         return Ok(());
     };
 
-    let root = formats_disk_root(&formats_settings.source);
-    let Some(new_versions) = read_manifest_versions(&root) else {
+    let source = FormatsSource::from_config(&formats_settings.source);
+    let Some(new_versions) =
+        tokio::task::spawn_blocking(move || read_manifest_versions(&source)).await?
+    else {
         return Ok(());
     };
 
@@ -58,12 +61,6 @@ async fn formats_reload_tick(state: &Arc<AppState>, settings: &Settings) -> anyh
     state.commit(Arc::new(snapshot));
     eprintln!("formats hot-reloaded");
     Ok(())
-}
-
-pub fn formats_disk_root(source: &crate::config::FormatsSourceConfig) -> std::path::PathBuf {
-    match source {
-        crate::config::FormatsSourceConfig::Disk { path } => std::path::PathBuf::from(path),
-    }
 }
 
 pub fn rebuild_formats_for_index(
