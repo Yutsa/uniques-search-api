@@ -25,3 +25,8 @@ max_post_payload_bytes = 0
 # [formats.source]
 # type = "disk"
 # path = "./uniques-http-api/formats"
+#
+# Or pull the manifest (and sibling format files) over HTTP instead of from disk:
+# [formats.source]
+# type = "http"
+# manifest_url = "https://altered-reunion-formats-prod.s3.fr-par.scw.cloud/manifest.json"

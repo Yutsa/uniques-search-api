@@ -73,8 +73,19 @@ pub fn load_single_format(
 ) -> Result<(bool, RoaringBitmap)> {
     let text = std::fs::read_to_string(file_path)
         .map_err(|e| anyhow!("read {}: {e}", file_path.display()))?;
-    let def: FormatDefinition = serde_json::from_str(&text)
-        .map_err(|e| anyhow!("parse {}: {e}", file_path.display()))?;
+    load_single_format_from_text(index, entry, &text, &file_path.display().to_string())
+}
+
+/// Same as [`load_single_format`], but for a format already fetched into memory
+/// (e.g. downloaded over HTTP). `label` is used in error messages in place of a file path.
+pub fn load_single_format_from_text(
+    index: &UniquesIndex,
+    entry: &FormatsManifestEntry,
+    text: &str,
+    label: &str,
+) -> Result<(bool, RoaringBitmap)> {
+    let def: FormatDefinition =
+        serde_json::from_str(text).map_err(|e| anyhow!("parse {label}: {e}"))?;
     def.cross_check_manifest(entry).map_err(|e| anyhow!(e))?;
     def.mode().map_err(|e| anyhow!(e))?;
     build_format_bitmap(index, &def)

@@ -104,12 +104,14 @@ pub struct FormatsSettings {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FormatsSourceConfig {
     Disk { path: String },
+    Http { manifest_url: String },
 }
 
 impl FormatsSettings {
     pub fn is_enabled(&self) -> bool {
         match &self.source {
             FormatsSourceConfig::Disk { path } => !path.trim().is_empty(),
+            FormatsSourceConfig::Http { manifest_url } => !manifest_url.trim().is_empty(),
         }
     }
 

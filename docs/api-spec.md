@@ -18,7 +18,8 @@
 ### Format filters
 
 When the server is configured with a `[formats]` section, format definitions are loaded from a
-manifest-driven directory on disk. Each format is a JSON file listed in `manifest.json`:
+manifest-driven source — either a directory on disk or a `manifest.json` served over HTTP. Each
+format is a JSON file listed in `manifest.json`:
 
 ```json
 [
@@ -76,7 +77,16 @@ type = "disk"
 path = "./formats"
 ```
 
-`FORMATS_PATH` env overrides `formats.source.path`.
+Or pull the manifest (and sibling format files) over HTTP instead of from disk:
+
+```toml
+[formats.source]
+type = "http"
+manifest_url = "https://altered-reunion-formats-prod.s3.fr-par.scw.cloud/manifest.json"
+```
+
+Each manifest entry's `path` is resolved relative to `manifest_url` (i.e. as a sibling file next
+to `manifest.json`). `FORMATS_PATH` env overrides `formats.source.path` (disk source only).
 
 ### Numeric and stat filters
 
