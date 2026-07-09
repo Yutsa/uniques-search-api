@@ -8,6 +8,13 @@ path = "./build/full_index.tar.zst"
 [index.reload]
 enabled = false
 
+# Or fetch the archive from a plain, unauthenticated URL (no cloud SDK, no
+# credentials -- just a GET). No hot-reload yet for this source.
+# [index]
+# source = "http"
+# [index.http]
+# url = "https://storage.googleapis.com/taum-reunion-public/index/full_index.tar.zst"
+
 [collections]
 # Cache maximum size (32 MiB)
 max_memory_bytes = 32_000_000

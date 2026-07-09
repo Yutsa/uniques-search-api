@@ -23,11 +23,13 @@ use crate::index::UniquesIndex;
 
 pub mod archive;
 pub mod disk;
+pub mod http;
 pub mod object_store;
 pub mod storage;
 
 pub use archive::TarZstIndexStorage;
 pub use disk::DiskIndexStorage;
+pub use http::{load_app_state_from_http, load_index_from_http, HttpIndexClient};
 pub use object_store::{load_app_state_from_object_store, load_index_from_object_store, ObjectStoreIndexClient};
 pub use storage::IndexStorage;
 
@@ -448,6 +450,9 @@ pub fn load_app_state(settings: &Settings) -> Result<AppState> {
         }
         crate::config::IndexSourceKind::ObjectStore => {
             bail!("load_app_state for object_store: use load_index_from_object_store in main")
+        }
+        crate::config::IndexSourceKind::Http => {
+            bail!("load_app_state for http: use load_index_from_http in main")
         }
     };
     Ok(build_app_state(index, settings))

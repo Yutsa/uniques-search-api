@@ -97,8 +97,8 @@ impl ServerState {
     /// Wrap loaded app state with minimal settings for integration tests (formats disabled).
     pub fn for_test(app: AppState) -> Self {
         use crate::config::{
-            CollectionsSettings, IndexSettings, IndexSourceKind, ObjectStoreSettings,
-            ReloadSettings, ServerSettings, Settings,
+            CollectionsSettings, HttpIndexSettings, IndexSettings, IndexSourceKind,
+            ObjectStoreSettings, ReloadSettings, ServerSettings, Settings,
         };
 
         Self {
@@ -113,6 +113,7 @@ impl ServerState {
                         interval_secs: None,
                     },
                     object_store: ObjectStoreSettings::default(),
+                    http: HttpIndexSettings::default(),
                 },
                 formats: None,
                 collections: CollectionsSettings {

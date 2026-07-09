@@ -49,6 +49,8 @@ pub struct IndexSettings {
     pub reload: ReloadSettings,
     #[serde(default)]
     pub object_store: ObjectStoreSettings,
+    #[serde(default)]
+    pub http: HttpIndexSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -57,6 +59,7 @@ pub enum IndexSourceKind {
     Disk,
     Archive,
     ObjectStore,
+    Http,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -89,6 +92,14 @@ fn validate_reload(reload: &ReloadSettings) -> Result<()> {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ObjectStoreSettings {
+    #[serde(default)]
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HttpIndexSettings {
+    /// Direct, unauthenticated URL to a `full_index.tar.zst` archive (e.g. a
+    /// public object storage URL). Fetched with a plain GET, no cloud SDK.
     #[serde(default)]
     pub url: String,
 }
@@ -137,6 +148,14 @@ impl Settings {
         let url = self.index.object_store.url.trim();
         if url.is_empty() {
             bail!("index.object_store.url must be set when index.source = object_store");
+        }
+        Ok(url)
+    }
+
+    pub fn http_index_url(&self) -> Result<&str> {
+        let url = self.index.http.url.trim();
+        if url.is_empty() {
+            bail!("index.http.url must be set when index.source = http");
         }
         Ok(url)
     }
@@ -208,6 +227,12 @@ fn validate_settings(settings: &Settings) -> Result<()> {
         IndexSourceKind::ObjectStore => {
             settings.object_store_url()?;
         }
+        IndexSourceKind::Http => {
+            settings.http_index_url()?;
+            if settings.index.reload.enabled {
+                bail!("index.reload is not supported yet for index.source = http");
+            }
+        }
         IndexSourceKind::Disk | IndexSourceKind::Archive => {
             settings.index_path()?;
         }
@@ -275,6 +300,74 @@ mod tests {
             .unwrap();
         assert_eq!(settings.index.source, IndexSourceKind::Disk);
         validate_settings(&settings).expect("disk config validates without object_store");
+    }
+
+    fn http_index_toml(reload_enabled: bool) -> String {
+        format!(
+            r#"
+            [server]
+            port = 3000
+
+            [index]
+            source = "http"
+
+            [index.http]
+            url = "https://example.com/full_index.tar.zst"
+
+            [index.reload]
+            enabled = {reload_enabled}
+            "#
+        )
+    }
+
+    #[test]
+    fn http_source_requires_url() {
+        let toml = r#"
+            [server]
+            port = 3000
+
+            [index]
+            source = "http"
+
+            [index.reload]
+            enabled = false
+        "#;
+        let settings: Settings = config::Config::builder()
+            .add_source(config::File::from_str(toml, config::FileFormat::Toml))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert_eq!(settings.index.source, IndexSourceKind::Http);
+        assert!(validate_settings(&settings).is_err());
+    }
+
+    #[test]
+    fn http_source_validates_with_url_set() {
+        let toml = http_index_toml(false);
+        let settings: Settings = config::Config::builder()
+            .add_source(config::File::from_str(&toml, config::FileFormat::Toml))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert_eq!(
+            settings.http_index_url().unwrap(),
+            "https://example.com/full_index.tar.zst"
+        );
+        validate_settings(&settings).expect("http config validates with url set");
+    }
+
+    #[test]
+    fn http_source_rejects_reload_enabled() {
+        let toml = http_index_toml(true);
+        let settings: Settings = config::Config::builder()
+            .add_source(config::File::from_str(&toml, config::FileFormat::Toml))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert!(validate_settings(&settings).is_err());
     }
 
     #[test]

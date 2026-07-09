@@ -3,9 +3,9 @@ use std::sync::Arc;
 use anyhow::Context;
 use tokio::net::TcpListener;
 use uniques_http_api::{
-    app, load_app_state, load_app_state_from_object_store, load_env, load_settings,
-    spawn_formats_hot_reload, spawn_hot_reload, AnyIndexSource, DiskIndexSource, IndexSourceKind,
-    ObjectStoreIndexClient, RemoteIndexSource, ServerState,
+    app, load_app_state, load_app_state_from_http, load_app_state_from_object_store, load_env,
+    load_settings, spawn_formats_hot_reload, spawn_hot_reload, AnyIndexSource, DiskIndexSource,
+    HttpIndexClient, IndexSourceKind, ObjectStoreIndexClient, RemoteIndexSource, ServerState,
 };
 
 #[tokio::main]
@@ -76,6 +76,12 @@ fn load_app_state_and_reload_source(
                 load_app_state_from_object_store(&client, settings)?,
                 reload_source,
             ))
+        }
+        IndexSourceKind::Http => {
+            // No hot-reload yet (rejected at config validation time), so no reload source.
+            let url = settings.http_index_url()?.to_string();
+            let client = HttpIndexClient::new(url);
+            Ok((load_app_state_from_http(&client, settings)?, None))
         }
     }
 }
