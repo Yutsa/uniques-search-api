@@ -83,18 +83,18 @@ push-collection id="coll-test-1k" collection="uniques-http-api/tests/fixtures/co
 # Build the index for a single set
 [group('4-production')]
 create-index set="COREKS" root_dir="../equinox-cards":
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-{{set}} --set {{set}} --out build/sets_index/{{set}}
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-{{set}} --set {{set}} --out build/sets_index
 
 # Build the index for all sets
 [group('4-production')]
 create-index-all root_dir="../equinox-cards":
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-COREKS --set COREKS --out build/sets_index/COREKS
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-CORE --set CORE --out build/sets_index/CORE
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-ALIZE --set ALIZE --out build/sets_index/ALIZE
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-BISE --set BISE --out build/sets_index/BISE
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-CYCLONE --set CYCLONE --out build/sets_index/CYCLONE
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-DUSTER --set DUSTER --out build/sets_index/DUSTER
-    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-EOLE --set EOLE --out build/sets_index/EOLE
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-COREKS --set COREKS --out build/sets_index
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-CORE --set CORE --out build/sets_index
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-ALIZE --set ALIZE --out build/sets_index
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-BISE --set BISE --out build/sets_index
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-CYCLONE --set CYCLONE --out build/sets_index
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-DUSTER --set DUSTER --out build/sets_index
+    cargo run -p cli-indexer --release -- build --root {{root_dir}}/cards-unique-EOLE --set EOLE --out build/sets_index
     cargo run -p cli-indexer --release -- merge --index-dir build/sets_index --sets COREKS,CORE,ALIZE,BISE,CYCLONE,DUSTER,EOLE --out build/full_index/ALL_SETS
 
 # Merge per-set indexes under build/sets_index/ into build/full_index/ALL_SETS.

@@ -40,6 +40,7 @@ fn build_query_decode_tmp_fixtures() {
         build::BuildOptions {
             file_limit: None,
             profile: false,
+            merge_duplicated_abilities: false,
         },
     )
     .expect("build");

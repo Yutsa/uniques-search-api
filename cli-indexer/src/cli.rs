@@ -58,6 +58,9 @@ pub enum Command {
         /// Print build phase timings (read, parse, process, write). Also enabled by CLI_INDEXER_PROFILE=1.
         #[arg(long)]
         profile: bool,
+        /// Collapse idGd entries that share the same element type and effect text (default: true).
+        #[arg(long, default_value_t = true)]
+        merge_duplicated_abilities: bool,
     },
     /// Decode a global bit index to a card reference.
     Decode {
@@ -112,6 +115,9 @@ pub enum Command {
         /// Full output directory for merged index (files written directly under this folder).
         #[arg(long)]
         out: PathBuf,
+        /// Collapse idGd entries that share the same element type and effect text (default: true).
+        #[arg(long, default_value_t = true)]
+        merge_duplicated_abilities: bool,
     },
     /// Find missing cards in gap-suspect families (max_unique_id != card_count).
     AuditMissing {
@@ -192,6 +198,7 @@ pub fn run() -> Result<()> {
             out,
             limit,
             profile,
+            merge_duplicated_abilities,
         } => {
             let summary = build::build(
                 &root,
@@ -200,6 +207,7 @@ pub fn run() -> Result<()> {
                 build::BuildOptions {
                     file_limit: limit,
                     profile,
+                    merge_duplicated_abilities,
                 },
             )?;
             let limit_note = match summary.file_limit {
@@ -292,8 +300,16 @@ pub fn run() -> Result<()> {
             index_dir,
             sets,
             out,
+            merge_duplicated_abilities,
         } => {
-            let summary = merge::merge_indexes(&index_dir, &sets, &out)?;
+            let summary = merge::merge_indexes(
+                &index_dir,
+                &sets,
+                &out,
+                merge::MergeOptions {
+                    merge_duplicated_abilities,
+                },
+            )?;
             println!(
                 "merged {}: {} source sets, {} cards, {} families, {} idGd bitmaps, bit span {}",
                 summary.output_dir.display(),

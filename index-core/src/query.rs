@@ -2,6 +2,7 @@ use crate::bitmap::{BitmapStore, EffectLine};
 use crate::catalog::Catalog;
 use crate::compact::CompactCardView;
 use crate::idgd_catalog::IdGdCatalog;
+use crate::idgd_collapse::IdGdAliasMap;
 use crate::path::parse_card_reference;
 use anyhow::{bail, Context, Result};
 use roaring::RoaringBitmap;
@@ -275,7 +276,8 @@ fn build_multi_idgd_query(
     let idgd_catalog: IdGdCatalog = serde_json::from_str(&idgd_catalog_text)
         .with_context(|| format!("parse {}", idgd_catalog_path.display()))?;
 
-    let (buckets, text_by_id) = bucket_id_gds(id_gds, &idgd_catalog, &idgd_catalog_path, locale)?;
+    let (buckets, text_by_id) =
+        bucket_id_gds(id_gds, &idgd_catalog, &idgd_catalog_path, locale)?;
 
     let id_gd_dir = set_dir.join("id_gd");
     let bitmap = execute_idgd_query(&id_gd_dir, &buckets, whole_card)?;
@@ -312,26 +314,29 @@ fn bucket_id_gds(
         );
     }
 
+    let alias_map = IdGdAliasMap::from_catalog(idgd_catalog);
+
     let mut buckets = IdGdQueryBuckets::default();
 
     for &id in id_gds {
+        let resolved = alias_map.resolve(id);
         let meta = meta_by_id
-            .get(&id)
+            .get(&resolved)
             .with_context(|| format!("idGd {id} not found in {}", idgd_catalog_path.display()))?;
         match meta.element_type.as_str() {
             "TRIGGER" => {
-                if !buckets.triggers.contains(&id) {
-                    buckets.triggers.push(id);
+                if !buckets.triggers.contains(&resolved) {
+                    buckets.triggers.push(resolved);
                 }
             }
             "CONDITION" => {
-                if !buckets.conditions.contains(&id) {
-                    buckets.conditions.push(id);
+                if !buckets.conditions.contains(&resolved) {
+                    buckets.conditions.push(resolved);
                 }
             }
             "OUTPUT" => {
-                if !buckets.outputs.contains(&id) {
-                    buckets.outputs.push(id);
+                if !buckets.outputs.contains(&resolved) {
+                    buckets.outputs.push(resolved);
                 }
             }
             other => {
@@ -648,13 +653,7 @@ fn record_tail_nonzero(record: &[u8; crate::compact::RECORD_SIZE]) -> bool {
 }
 
 fn pick_translation(map: &BTreeMap<String, crate::card::LocaleText>, locale: &str) -> String {
-    if let Some(t) = map.get(locale) {
-        return t.text.clone();
-    }
-    if let Some(t) = map.get("en_US") {
-        return t.text.clone();
-    }
-    map.values().next().map(|t| t.text.clone()).unwrap_or_default()
+    crate::card::translation_text(map, locale)
 }
 
 fn build_effect_line(t: u16, c: u16, e: u16, text_by_id: &BTreeMap<u32, String>) -> Option<String> {
@@ -728,6 +727,7 @@ mod tests {
                 ec: None,
                 is_main: true,
                 is_echo: false,
+                duplicated_id_gd: Vec::new(),
             });
         }
         let cat = IdGdCatalog {
@@ -748,6 +748,44 @@ mod tests {
 
     fn id_gd_dir(set_dir: &Path) -> std::path::PathBuf {
         set_dir.join("id_gd")
+    }
+
+    #[test]
+    fn resolves_duplicated_id_gd_alias() -> Result<()> {
+        let (_td, set_dir) = setup_index()?;
+
+        let catalog = IdGdCatalog {
+            set: "TEST".to_string(),
+            entries: vec![IdGdCatalogEntry {
+                id_gd: 100,
+                card_count: 1,
+                bitmap_bytes: 0,
+                bitmap_file: "100.roar".to_string(),
+                element_type: "TRIGGER".to_string(),
+                translations: {
+                    let mut m = BTreeMap::new();
+                    m.insert("en_US".to_string(), lt("en_US", "When played"));
+                    m
+                },
+                m1: None,
+                m2: None,
+                m3: None,
+                ec: None,
+                is_main: true,
+                is_echo: false,
+                duplicated_id_gd: vec![200],
+            }],
+        };
+        let text = serde_json::to_string_pretty(&catalog)?;
+        fs::write(set_dir.join("idgd_catalog.json"), text)?;
+
+        write_bitmap(&set_dir.join("id_gd/100.roar"), &[42])?;
+
+        let (bmp, _recap, _texts) =
+            build_multi_idgd_query(set_dir.parent().unwrap(), "SET", &[200], None, true)?;
+        assert_eq!(bmp.len(), 1);
+        assert!(bmp.contains(42));
+        Ok(())
     }
 
     #[test]

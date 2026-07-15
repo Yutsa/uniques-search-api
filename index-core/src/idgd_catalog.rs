@@ -1,5 +1,6 @@
 use crate::bitmap::{BitmapStore, EffectLine, PerLineBitmapStore};
 use crate::card::{IdGdOccurrence, LocaleText};
+use crate::idgd_collapse::CollapseEntry;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -33,6 +34,9 @@ pub struct IdGdCatalogEntry {
     /// `true` if this idGd appeared on an echo effect line (ec) at least once.
     #[serde(default)]
     pub is_echo: bool,
+    /// Non-canonical idGd values collapsed into this entry (same element type and text).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub duplicated_id_gd: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -78,6 +82,7 @@ struct DraftEntry {
     translations: BTreeMap<String, LocaleText>,
     seen_main: bool,
     seen_echo: bool,
+    duplicated_id_gd: Vec<u32>,
 }
 
 impl IdGdCatalogBuilder {
@@ -94,6 +99,7 @@ impl IdGdCatalogBuilder {
                 translations: occurrence.translations.clone(),
                 seen_main: false,
                 seen_echo: false,
+                duplicated_id_gd: Vec::new(),
             });
     }
 
@@ -104,10 +110,39 @@ impl IdGdCatalogBuilder {
             translations: BTreeMap::new(),
             seen_main: false,
             seen_echo: false,
+            duplicated_id_gd: Vec::new(),
         });
         match line {
             EffectLine::Ec => entry.seen_echo = true,
             _ => entry.seen_main = true,
+        }
+    }
+
+    pub fn collapse_entries(&self) -> Vec<CollapseEntry> {
+        self.entries
+            .iter()
+            .map(|(&id_gd, d)| CollapseEntry {
+                id_gd,
+                element_type: d.element_type.clone(),
+                translations: d.translations.clone(),
+            })
+            .collect()
+    }
+
+    pub fn apply_collapse_remap(&mut self, remap: &std::collections::BTreeMap<u32, u32>) {
+        if remap.is_empty() {
+            return;
+        }
+        let duplicated = crate::idgd_collapse::duplicated_id_gd_from_remap(remap);
+
+        for alias in remap.keys() {
+            self.entries.remove(alias);
+        }
+
+        for (canonical, dups) in duplicated {
+            if let Some(entry) = self.entries.get_mut(&canonical) {
+                entry.duplicated_id_gd = dups;
+            }
         }
     }
 
@@ -122,16 +157,18 @@ impl IdGdCatalogBuilder {
         let mut entries = Vec::with_capacity(bitmaps.len());
         for (&id_gd, bitmap) in bitmaps.iter() {
             let draft = self.entries.get(&id_gd);
-            let (element_type, translations, flags) = match draft {
+            let (element_type, translations, flags, duplicated_id_gd) = match draft {
                 Some(d) => (
                     d.element_type.clone(),
                     d.translations.clone(),
                     EffectRegionFlags::from_seen(d.seen_main, d.seen_echo),
+                    d.duplicated_id_gd.clone(),
                 ),
                 None => (
                     "UNKNOWN".to_string(),
                     BTreeMap::new(),
                     EffectRegionFlags::default(),
+                    Vec::new(),
                 ),
             };
 
@@ -164,6 +201,7 @@ impl IdGdCatalogBuilder {
                 ec: line_meta(EffectLine::Ec),
                 is_main: flags.is_main,
                 is_echo: flags.is_echo,
+                duplicated_id_gd,
             });
         }
         IdGdCatalog {

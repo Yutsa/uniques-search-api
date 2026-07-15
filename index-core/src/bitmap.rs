@@ -56,6 +56,18 @@ impl BitmapStore {
         self.map.iter()
     }
 
+    /// OR-merge bitmaps for aliased ids into their canonical id; drop alias keys.
+    pub fn remap_ids(&mut self, remap: &std::collections::BTreeMap<u32, u32>) {
+        if remap.is_empty() {
+            return;
+        }
+        let old = std::mem::take(&mut self.map);
+        for (id, bitmap) in old {
+            let canonical = remap.get(&id).copied().unwrap_or(id);
+            *self.map.entry(canonical).or_default() |= bitmap;
+        }
+    }
+
     /// Write bitmap files; returns serialized byte size per `idGd`.
     pub fn write_dir(&self, dir: &Path) -> Result<BTreeMap<u32, u64>> {
         fs::create_dir_all(dir)?;
@@ -106,6 +118,18 @@ impl PerLineBitmapStore {
 
     pub fn iter(&self) -> impl Iterator<Item = (&(u32, EffectLine), &RoaringBitmap)> {
         self.map.iter()
+    }
+
+    /// OR-merge per-line bitmaps for aliased ids into their canonical id; drop alias keys.
+    pub fn remap_ids(&mut self, remap: &std::collections::BTreeMap<u32, u32>) {
+        if remap.is_empty() {
+            return;
+        }
+        let old = std::mem::take(&mut self.map);
+        for ((id, line), bitmap) in old {
+            let canonical = remap.get(&id).copied().unwrap_or(id);
+            *self.map.entry((canonical, line)).or_default() |= bitmap;
+        }
     }
 
     /// Write bitmap files; returns serialized byte size per `(idGd, EffectLine)`.

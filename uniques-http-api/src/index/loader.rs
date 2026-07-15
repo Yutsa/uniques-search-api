@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use index_core::bitmap::EffectLine;
+use index_core::idgd_collapse::IdGdAliasMap;
 use index_core::catalog::Catalog;
 use index_core::compact::RECORD_SIZE;
 use index_core::faction_index::Faction;
@@ -405,6 +406,8 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         catalog.families.len()
     );
 
+    let id_gd_aliases = IdGdAliasMap::from_catalog(&idgd_catalog);
+
     let effects_list = build_effects_list(&idgd_catalog);
     let effects_body = Arc::new(serialize_effects_list(&effects_list)?);
     eprintln!(
@@ -422,6 +425,7 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         catalog,
         manifest,
         idgd_catalog,
+        id_gd_aliases,
         stats_summary,
         factions_summary,
         cards,

@@ -60,6 +60,7 @@ Crawl a dataset directory and write a per-set index under `<out>/<SET>/`.
 | `--out <PATH>` | yes | Output directory; files go in `<out>/<SET>/` |
 | `--limit <N>` | no | Stop after indexing **N** files (testing / partial builds) |
 | `--profile` | no | Print phase timings (read, parse, process, write) |
+| `--merge-duplicated-abilities` | no | Collapse idGd entries that share the same element type and effect text (default: `true`) |
 
 **Environment**
 
@@ -158,6 +159,7 @@ Merge two or more **existing** per-set indexes into one global index. Output fil
 | `--index-dir <PATH>` | yes | Directory containing `<SET>/catalog.json` for each source set |
 | `--sets <LIST>` | yes | Comma-separated set codes in **precedence order** (overlap grouping and tie-breaking) |
 | `--out <PATH>` | yes | Output folder for the merged index (e.g. `./build/full_index/ALL_SETS`) |
+| `--merge-duplicated-abilities` | no | Collapse idGd entries that share the same element type and effect text (default: `true`) |
 
 **Example**
 

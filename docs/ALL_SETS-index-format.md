@@ -443,6 +443,7 @@ Nested keys `m1`, `m2`, `m3`, `ec` are omitted when the corresponding per-line b
   - `true` — idGd appears only under **ECHO_EFFECT** (`ec`).
   - `null` — idGd was indexed in **both** regions (data error; build logs an error).
 - **`translations`** (`object`): map of locale key → `{ "locale": string, "text": string }`.
+- **`duplicated_id_gd`** (`u32[]`, optional): non-canonical idGd values collapsed into this entry during index build/merge (same `element_type` and `en_US` text). Omitted when empty. Queries accept these ids and resolve them to the canonical `id_gd`.
 - **`m1`**, **`m2`**, **`m3`**, **`ec`** (`object`, optional): per-line bitmap metadata with:
   - **`card_count`** (`u64`): cardinality of that line’s bitmap.
   - **`bitmap_bytes`** (`u64`): byte length of the file.
