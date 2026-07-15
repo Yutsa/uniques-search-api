@@ -1,7 +1,9 @@
 use crate::bitmap::{BitmapStore, EffectLine, PerLineBitmapStore};
 use crate::card::{translation_text, LocaleText};
 use crate::compact::{remap_id_gd_fields, CompactCardFields, RECORD_SIZE};
-use crate::idgd_catalog::{IdGdCatalog, IdGdCatalogBuilder};
+use crate::idgd_catalog::{
+    BitmapMeta, EffectRegionFlags, IdGdCatalog, IdGdCatalogBuilder, IdGdCatalogEntry,
+};
 use anyhow::{Context, Result};
 use roaring::RoaringBitmap;
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,17 +56,60 @@ impl IdGdAliasMap {
     }
 }
 
+/// Normalize Unicode whitespace for collapse grouping (comparison only).
+fn normalize_collapse_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut prev_was_space = false;
+    for ch in text.chars() {
+        let is_space = ch.is_whitespace() || matches!(ch, '\u{00a0}' | '\u{202f}' | '\u{2007}');
+        if is_space {
+            if !prev_was_space {
+                out.push(' ');
+                prev_was_space = true;
+            }
+        } else {
+            out.push(ch);
+            prev_was_space = false;
+        }
+    }
+    out
+}
+
+fn text_has_nbsp(text: &str) -> bool {
+    text.contains('\u{00a0}')
+}
+
+fn choose_canonical_id(ids: &[u32], text_by_id: &BTreeMap<u32, String>) -> u32 {
+    let nbsp_ids: Vec<u32> = ids
+        .iter()
+        .copied()
+        .filter(|id| text_has_nbsp(&text_by_id[id]))
+        .collect();
+    if !nbsp_ids.is_empty() {
+        return *nbsp_ids.iter().min().unwrap();
+    }
+    *ids.iter().min().unwrap()
+}
+
 /// Map alias idGd -> canonical idGd for entries sharing element type and text.
 pub fn build_collapse_remap(entries: impl IntoIterator<Item = CollapseEntry>) -> BTreeMap<u32, u32> {
-    let mut groups: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
+    let entries: Vec<CollapseEntry> = entries.into_iter().collect();
+    let text_by_id: BTreeMap<u32, String> = entries
+        .iter()
+        .map(|entry| {
+            let text = translation_text(&entry.translations, COLLAPSE_LOCALE);
+            (entry.id_gd, text)
+        })
+        .collect();
 
-    for entry in entries {
-        let text = translation_text(&entry.translations, COLLAPSE_LOCALE);
-        if text.is_empty() {
-            continue;
-        }
+    let mut groups: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
+    for entry in &entries {
+        let text = match text_by_id.get(&entry.id_gd) {
+            Some(t) if !t.is_empty() => t,
+            _ => continue,
+        };
         groups
-            .entry((entry.element_type, text))
+            .entry((entry.element_type.clone(), normalize_collapse_text(text)))
             .or_default()
             .push(entry.id_gd);
     }
@@ -74,7 +119,7 @@ pub fn build_collapse_remap(entries: impl IntoIterator<Item = CollapseEntry>) ->
         if ids.len() < 2 {
             continue;
         }
-        let canonical = *ids.iter().min().expect("non-empty group");
+        let canonical = choose_canonical_id(ids, &text_by_id);
         for &id in ids {
             if id != canonical {
                 remap.insert(id, canonical);
@@ -317,6 +362,164 @@ pub fn build_merged_duplicated_id_gd(
         .collect())
 }
 
+/// Rewrite `idgd_catalog.json` from on-disk bitmaps and in-memory metadata.
+pub fn write_idgd_catalog(
+    index_dir: &Path,
+    set_name: &str,
+    bitmap_sizes: &BTreeMap<u32, u64>,
+    meta: &BTreeMap<
+        u32,
+        (
+            String,
+            BTreeMap<String, LocaleText>,
+            EffectRegionFlags,
+        ),
+    >,
+    duplicated_id_gd: &BTreeMap<u32, Vec<u32>>,
+) -> Result<()> {
+    let id_gd_dir = index_dir.join("id_gd");
+    let mut entries: Vec<IdGdCatalogEntry> = Vec::with_capacity(bitmap_sizes.len());
+    for (&id_gd, &bitmap_bytes) in bitmap_sizes {
+        let (element_type, translations, flags) = meta
+            .get(&id_gd)
+            .cloned()
+            .map(|(et, tr, f)| (et, tr, f))
+            .unwrap_or_else(|| {
+                (
+                    "UNKNOWN".to_string(),
+                    BTreeMap::new(),
+                    EffectRegionFlags::default(),
+                )
+            });
+        let bmp_path = id_gd_dir.join(format!("{id_gd}.roar"));
+        let bmp = load_bitmap(&bmp_path)?;
+
+        let line_meta = |line: EffectLine| -> Result<Option<BitmapMeta>> {
+            let file = format!("{id_gd}_{}.roar", line.suffix());
+            let path = id_gd_dir.join(&file);
+            if !path.exists() {
+                return Ok(None);
+            }
+            let bmp = load_bitmap(&path)?;
+            if bmp.is_empty() {
+                return Ok(None);
+            }
+            let bytes = fs::metadata(&path)
+                .with_context(|| format!("stat {}", path.display()))?
+                .len() as u64;
+            Ok(Some(BitmapMeta {
+                card_count: bmp.len(),
+                bitmap_bytes: bytes,
+                bitmap_file: file,
+            }))
+        };
+
+        entries.push(IdGdCatalogEntry {
+            id_gd,
+            card_count: bmp.len(),
+            bitmap_bytes,
+            bitmap_file: format!("{id_gd}.roar"),
+            element_type,
+            translations,
+            m1: line_meta(EffectLine::M1)?,
+            m2: line_meta(EffectLine::M2)?,
+            m3: line_meta(EffectLine::M3)?,
+            ec: line_meta(EffectLine::Ec)?,
+            is_main: flags.is_main,
+            is_echo: flags.is_echo,
+            duplicated_id_gd: duplicated_id_gd.get(&id_gd).cloned().unwrap_or_default(),
+        });
+    }
+    let cat = IdGdCatalog {
+        set: set_name.to_string(),
+        entries,
+    };
+    IdGdCatalogBuilder::save(&cat, &index_dir.join("idgd_catalog.json"))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DedupAbilitiesSummary {
+    pub index_dir: PathBuf,
+    pub collapsed_pairs: usize,
+    pub id_gd_before: usize,
+    pub id_gd_after: usize,
+}
+
+fn catalog_to_meta_and_sizes(
+    catalog: &IdGdCatalog,
+) -> (
+    BTreeMap<u32, (String, BTreeMap<String, LocaleText>, EffectRegionFlags)>,
+    BTreeMap<u32, u64>,
+) {
+    let mut meta = BTreeMap::new();
+    let mut sizes = BTreeMap::new();
+    for entry in &catalog.entries {
+        meta.insert(
+            entry.id_gd,
+            (
+                entry.element_type.clone(),
+                entry.translations.clone(),
+                EffectRegionFlags {
+                    is_main: entry.is_main,
+                    is_echo: entry.is_echo,
+                },
+            ),
+        );
+        sizes.insert(entry.id_gd, entry.bitmap_bytes);
+    }
+    (meta, sizes)
+}
+
+/// Collapse whitespace-normalized duplicate idGd entries on an existing index directory.
+pub fn dedup_abilities_on_disk(index_dir: &Path) -> Result<DedupAbilitiesSummary> {
+    let catalog_path = index_dir.join("idgd_catalog.json");
+    let manifest_path = index_dir.join("manifest.json");
+
+    let catalog_text = fs::read_to_string(&catalog_path)
+        .with_context(|| format!("read {}", catalog_path.display()))?;
+    let catalog: IdGdCatalog = serde_json::from_str(&catalog_text)
+        .with_context(|| format!("parse {}", catalog_path.display()))?;
+    let id_gd_before = catalog.entries.len();
+
+    let (mut meta, mut bitmap_sizes) = catalog_to_meta_and_sizes(&catalog);
+    let remap = collapse_merged_id_gd_on_disk(index_dir, &mut meta, &mut bitmap_sizes)?;
+    let id_gd_after = bitmap_sizes.len();
+    let collapsed_pairs = remap.len();
+
+    if !remap.is_empty() {
+        let duplicated_id_gd =
+            build_merged_duplicated_id_gd(&[index_dir.to_path_buf()], &remap)?;
+        write_idgd_catalog(
+            index_dir,
+            &catalog.set,
+            &bitmap_sizes,
+            &meta,
+            &duplicated_id_gd,
+        )?;
+
+        let manifest_text = fs::read_to_string(&manifest_path)
+            .with_context(|| format!("read {}", manifest_path.display()))?;
+        let mut manifest: serde_json::Value = serde_json::from_str(&manifest_text)
+            .with_context(|| format!("parse {}", manifest_path.display()))?;
+        if let Some(obj) = manifest.as_object_mut() {
+            obj.insert("id_gd_count".to_string(), serde_json::json!(id_gd_after));
+        }
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest)? + "\n",
+        )
+        .with_context(|| format!("write {}", manifest_path.display()))?;
+    }
+
+    Ok(DedupAbilitiesSummary {
+        index_dir: index_dir.to_path_buf(),
+        collapsed_pairs,
+        id_gd_before,
+        id_gd_after,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +554,49 @@ mod tests {
         assert_eq!(remap.get(&200), Some(&100));
         assert!(!remap.contains_key(&100));
         assert!(!remap.contains_key(&300));
+    }
+
+    #[test]
+    fn build_collapse_remap_collapses_nbsp_vs_space() {
+        let space_text = "Characters your opponents play can't cost less than {2}.";
+        let nbsp_text = "Characters your opponents play can't cost less than\u{00a0}{2}.";
+        let remap = build_collapse_remap([
+            entry(95, "OUTPUT", space_text),
+            entry(214, "OUTPUT", nbsp_text),
+        ]);
+        assert_eq!(remap.get(&95), Some(&214));
+        assert!(!remap.contains_key(&214));
+    }
+
+    #[test]
+    fn build_collapse_remap_prefers_nbsp_canonical_over_min_id() {
+        let space_text = "Characters your opponents play can't cost less than {2}.";
+        let nbsp_text = "Characters your opponents play can't cost less than\u{00a0}{2}.";
+        let entries = [
+            entry(95, "OUTPUT", space_text),
+            entry(214, "OUTPUT", nbsp_text),
+        ];
+        let text_by_id: BTreeMap<u32, String> = entries
+            .iter()
+            .map(|e| {
+                (
+                    e.id_gd,
+                    translation_text(&e.translations, COLLAPSE_LOCALE),
+                )
+            })
+            .collect();
+        let ids = vec![95, 214];
+        assert_eq!(choose_canonical_id(&ids, &text_by_id), 214);
+        assert!(text_has_nbsp(&text_by_id[&214]));
+    }
+
+    #[test]
+    fn build_collapse_remap_skips_unrelated_text() {
+        let remap = build_collapse_remap([
+            entry(95, "OUTPUT", "Alpha"),
+            entry(214, "OUTPUT", "Beta"),
+        ]);
+        assert!(remap.is_empty());
     }
 
     #[test]

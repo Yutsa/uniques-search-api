@@ -60,7 +60,7 @@ Crawl a dataset directory and write a per-set index under `<out>/<SET>/`.
 | `--out <PATH>` | yes | Output directory; files go in `<out>/<SET>/` |
 | `--limit <N>` | no | Stop after indexing **N** files (testing / partial builds) |
 | `--profile` | no | Print phase timings (read, parse, process, write) |
-| `--merge-duplicated-abilities` | no | Collapse idGd entries that share the same element type and effect text (default: `true`) |
+| `--merge-duplicated-abilities` | no | Collapse idGd entries that share the same element type and whitespace-normalized effect text (default: `true`) |
 
 **Environment**
 
@@ -159,7 +159,7 @@ Merge two or more **existing** per-set indexes into one global index. Output fil
 | `--index-dir <PATH>` | yes | Directory containing `<SET>/catalog.json` for each source set |
 | `--sets <LIST>` | yes | Comma-separated set codes in **precedence order** (overlap grouping and tie-breaking) |
 | `--out <PATH>` | yes | Output folder for the merged index (e.g. `./build/full_index/ALL_SETS`) |
-| `--merge-duplicated-abilities` | no | Collapse idGd entries that share the same element type and effect text (default: `true`) |
+| `--merge-duplicated-abilities` | no | Collapse idGd entries that share the same element type and whitespace-normalized effect text (default: `true`) |
 
 **Example**
 
@@ -171,6 +171,26 @@ cargo run -p cli-indexer -- merge \
 ```
 
 See [ALL_SETS index format](ALL_SETS-index-format.md) for merge ordering and on-disk layout.
+
+---
+
+### `dedup-abilities`
+
+Collapse idGd entries with identical **whitespace-normalized** `en_US` effect text on an **existing** index directory. Merges alias bitmaps into the canonical id, rewrites `idgd_catalog.json`, and updates `manifest.json` `id_gd_count`. When duplicates differ only by whitespace, the canonical entry prefers the NBSP-bearing raw text.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--index-dir <PATH>` | yes | Index root with `manifest.json`, `idgd_catalog.json`, `id_gd/`, `cards.bin` |
+
+**Example**
+
+```bash
+cargo run -p cli-indexer -- dedup-abilities \
+  --index-dir ./build/full_index/ALL_SETS
+
+# Or via justfile (defaults to build/full_index/ALL_SETS)
+just dedup-abilities
+```
 
 ---
 

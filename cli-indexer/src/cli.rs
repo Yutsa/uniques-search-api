@@ -2,6 +2,7 @@ use index_core::add_extra_filter;
 use index_core::audit_missing;
 use index_core::build;
 use index_core::decode;
+use index_core::idgd_collapse;
 use index_core::merge;
 use index_core::query;
 use index_core::extra_catalog::ExtraFilterType;
@@ -165,6 +166,12 @@ pub enum Command {
         /// Include per-query cardinality samples in JSON output.
         #[arg(long, default_value_t = false)]
         json_samples: bool,
+    },
+    /// Collapse idGd entries with identical effect text on an existing index.
+    DedupAbilities {
+        /// Index directory (contains manifest.json, idgd_catalog.json, id_gd/, cards.bin)
+        #[arg(long)]
+        index_dir: PathBuf,
     },
     /// Register a card-list filter built from a refs file on an existing index.
     AddExtraFilter {
@@ -355,6 +362,24 @@ pub fn run() -> Result<()> {
                     json_samples,
                 },
             )?;
+        }
+        Command::DedupAbilities { index_dir } => {
+            let summary = idgd_collapse::dedup_abilities_on_disk(&index_dir)?;
+            if summary.collapsed_pairs == 0 {
+                println!(
+                    "dedup-abilities {}: 0 new collapses (id_gd={})",
+                    summary.index_dir.display(),
+                    summary.id_gd_after
+                );
+            } else {
+                println!(
+                    "dedup-abilities {}: {} collapsed, id_gd {} -> {}",
+                    summary.index_dir.display(),
+                    summary.collapsed_pairs,
+                    summary.id_gd_before,
+                    summary.id_gd_after
+                );
+            }
         }
         Command::AddExtraFilter {
             index_dir,

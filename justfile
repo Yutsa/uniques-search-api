@@ -102,6 +102,11 @@ create-index-all root_dir="../equinox-cards":
 index-merge sets="COREKS,CORE,ALIZE,BISE,CYCLONE,DUSTER,EOLE":
     cargo run -p cli-indexer --release -- merge --index-dir build/sets_index --sets {{sets}} --out build/full_index/ALL_SETS
 
+# Collapse duplicate idGd abilities on the merged full index.
+[group('4-production')]
+dedup-abilities index_dir="build/full_index/ALL_SETS":
+    cargo run -p cli-indexer --release -- dedup-abilities --index-dir {{index_dir}}
+
 # Compress the full index into a single .tar.zst file.
 [group('4-production'), unix]
 compress-index:

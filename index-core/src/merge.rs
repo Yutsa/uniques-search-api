@@ -1,10 +1,10 @@
 use crate::catalog::{Catalog, FamilyEntry, FACTION_ORDER};
 use crate::compact::RECORD_SIZE;
 use crate::bitmap::EffectLine;
-use crate::idgd_catalog::{
-    BitmapMeta, EffectRegionFlags, IdGdCatalog, IdGdCatalogBuilder, IdGdCatalogEntry,
+use crate::idgd_catalog::{EffectRegionFlags, IdGdCatalog};
+use crate::idgd_collapse::{
+    build_merged_duplicated_id_gd, collapse_merged_id_gd_on_disk, write_idgd_catalog,
 };
-use crate::idgd_collapse::{build_merged_duplicated_id_gd, collapse_merged_id_gd_on_disk};
 use anyhow::{anyhow, Context, Result};
 use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
@@ -800,68 +800,6 @@ fn merge_factions(out: &Path, plan: &MergePlan, sources: &[SourceIndex]) -> Resu
     };
     let text = serde_json::to_string_pretty(&summary)?;
     fs::write(out.join("factions_summary.json"), text)?;
-    Ok(())
-}
-
-fn write_idgd_catalog(
-    out: &Path,
-    merged_set_name: &str,
-    bitmap_sizes: &BTreeMap<u32, u64>,
-    meta: &BTreeMap<u32, (String, BTreeMap<String, crate::card::LocaleText>, EffectRegionFlags)>,
-    duplicated_id_gd: &BTreeMap<u32, Vec<u32>>,
-) -> Result<()> {
-    let mut entries: Vec<IdGdCatalogEntry> = Vec::with_capacity(bitmap_sizes.len());
-    for (&id_gd, &bitmap_bytes) in bitmap_sizes {
-        let (element_type, translations, flags) = meta
-            .get(&id_gd)
-            .cloned()
-            .map(|(et, tr, f)| (et, tr, f))
-            .unwrap_or_else(|| ("UNKNOWN".to_string(), BTreeMap::new(), EffectRegionFlags::default()));
-        // card_count is computed by loading bitmap we just wrote and counting.
-        let bmp_path = out.join("id_gd").join(format!("{id_gd}.roar"));
-        let bmp = load_bitmap(&bmp_path)?;
-
-        let line_meta = |line: EffectLine| -> Result<Option<BitmapMeta>> {
-            let file = format!("{id_gd}_{}.roar", line.suffix());
-            let path = out.join("id_gd").join(&file);
-            if !path.exists() {
-                return Ok(None);
-            }
-            let bmp = load_bitmap(&path)?;
-            if bmp.is_empty() {
-                return Ok(None);
-            }
-            let bytes = fs::metadata(&path)
-                .with_context(|| format!("stat {}", path.display()))?
-                .len() as u64;
-            Ok(Some(BitmapMeta {
-                card_count: bmp.len(),
-                bitmap_bytes: bytes,
-                bitmap_file: file,
-            }))
-        };
-
-        entries.push(IdGdCatalogEntry {
-            id_gd,
-            card_count: bmp.len(),
-            bitmap_bytes,
-            bitmap_file: format!("{id_gd}.roar"),
-            element_type,
-            translations,
-            m1: line_meta(EffectLine::M1)?,
-            m2: line_meta(EffectLine::M2)?,
-            m3: line_meta(EffectLine::M3)?,
-            ec: line_meta(EffectLine::Ec)?,
-            is_main: flags.is_main,
-            is_echo: flags.is_echo,
-            duplicated_id_gd: duplicated_id_gd.get(&id_gd).cloned().unwrap_or_default(),
-        });
-    }
-    let cat = IdGdCatalog {
-        set: merged_set_name.to_string(),
-        entries,
-    };
-    IdGdCatalogBuilder::save(&cat, &out.join("idgd_catalog.json"))?;
     Ok(())
 }
 
