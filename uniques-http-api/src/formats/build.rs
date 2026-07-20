@@ -100,6 +100,7 @@ mod tests {
     use axum::body::Bytes;
     use index_core::catalog::{Catalog, FamilyEntry, FamilySet};
     use index_core::idgd_catalog::IdGdCatalog;
+    use index_core::idgd_collapse::IdGdAliasMap;
 
     use crate::index::loader::{
         build_family_lookup_index, build_family_span_groups, build_name_search_index,
@@ -171,6 +172,7 @@ mod tests {
                 set: "TEST".to_string(),
                 entries: vec![],
             },
+            id_gd_aliases: IdGdAliasMap::default(),
             stats_summary: StatsSummary {
                 version: 1,
                 set: "TEST".to_string(),

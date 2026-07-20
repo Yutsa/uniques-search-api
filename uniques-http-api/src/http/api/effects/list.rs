@@ -45,6 +45,7 @@ fn effect_part_with_region(entry: &IdGdCatalogEntry) -> EffectPartWithRegion {
         text: translations_to_text(&entry.translations),
         is_echo: entry.is_echo,
         is_main: entry.is_main,
+        duplicated_id_gd: entry.duplicated_id_gd.clone(),
     }
 }
 
@@ -90,6 +91,7 @@ mod tests {
             ec: None,
             is_main,
             is_echo,
+            duplicated_id_gd: Vec::new(),
         }
     }
 

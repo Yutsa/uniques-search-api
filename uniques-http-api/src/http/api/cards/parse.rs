@@ -543,7 +543,8 @@ fn validate_idgd_types(state: &UniquesIndex, filters: &AbilityFilters) -> ApiRes
         ] {
             let key = format!("effect[{}]{key_suffix}", slot.index);
             for &id in ids.iter() {
-                let Some(actual) = types.get(&id).copied() else {
+                let resolved = state.resolve_id_gd(id);
+                let Some(actual) = types.get(&resolved).copied() else {
                     return Err(bad_request(format!(
                         "{key} contains unknown idGd {id} (not present in idgd_catalog)"
                     )));
@@ -564,7 +565,8 @@ fn validate_idgd_types(state: &UniquesIndex, filters: &AbilityFilters) -> ApiRes
         ("support[o]", IdGdSelector::O, &filters.support_o),
     ] {
         for &id in ids.iter() {
-            let Some(actual) = types.get(&id).copied() else {
+            let resolved = state.resolve_id_gd(id);
+            let Some(actual) = types.get(&resolved).copied() else {
                 return Err(bad_request(format!(
                     "{key} contains unknown idGd {id} (not present in idgd_catalog)"
                 )));

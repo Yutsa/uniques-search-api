@@ -11,6 +11,7 @@ pub mod extra_catalog;
 pub mod faction_display;
 pub mod faction_index;
 pub mod idgd_catalog;
+pub mod idgd_collapse;
 pub mod merge;
 pub mod path;
 pub mod profile;

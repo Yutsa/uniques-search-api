@@ -5,6 +5,7 @@ use crate::compact::{compact_fields_from_card, write_compact_records, CompactCar
 use crate::crawl::{discover_card_files, CardFile, DiscoverOptions};
 use crate::faction_index::{FactionIndex, FactionIndexBuilder};
 use crate::idgd_catalog::IdGdCatalogBuilder;
+use crate::idgd_collapse::apply_build_collapse;
 use crate::profile::{profile_enabled, BuildProfile};
 use crate::progress::{BuildProgress, DiscoveryProgress, WriteProgress};
 use crate::stat_index::{StatIndex, StatIndexBuilder};
@@ -30,6 +31,7 @@ pub struct Manifest {
 pub struct BuildOptions {
     pub file_limit: Option<usize>,
     pub profile: bool,
+    pub merge_duplicated_abilities: bool,
 }
 
 impl Default for BuildOptions {
@@ -37,6 +39,7 @@ impl Default for BuildOptions {
         Self {
             file_limit: None,
             profile: false,
+            merge_duplicated_abilities: true,
         }
     }
 }
@@ -113,6 +116,15 @@ pub fn build(
 
     catalog_builder.finalize_last()?;
     let catalog = catalog_builder.into_catalog()?;
+
+    if options.merge_duplicated_abilities {
+        apply_build_collapse(
+            &mut bitmaps,
+            &mut per_line_bitmaps,
+            &mut idgd_catalog_builder,
+            &mut compact_cards,
+        );
+    }
 
     let write_progress = WriteProgress::start();
     let set_out = out.join(set);

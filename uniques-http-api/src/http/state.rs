@@ -134,6 +134,7 @@ mod tests {
 
     use index_core::catalog::Catalog;
     use index_core::idgd_catalog::IdGdCatalog;
+    use index_core::idgd_collapse::IdGdAliasMap;
 
     use crate::collections::CollectionStore;
     use crate::config::CollectionsSettings;
@@ -177,6 +178,7 @@ mod tests {
                 set: "TEST".to_string(),
                 entries: vec![],
             },
+            id_gd_aliases: IdGdAliasMap::default(),
             stats_summary: StatsSummary {
                 version: 1,
                 set: "TEST".to_string(),

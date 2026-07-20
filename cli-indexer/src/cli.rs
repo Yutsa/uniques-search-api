@@ -2,6 +2,7 @@ use index_core::add_extra_filter;
 use index_core::audit_missing;
 use index_core::build;
 use index_core::decode;
+use index_core::idgd_collapse;
 use index_core::merge;
 use index_core::query;
 use index_core::extra_catalog::ExtraFilterType;
@@ -58,6 +59,9 @@ pub enum Command {
         /// Print build phase timings (read, parse, process, write). Also enabled by CLI_INDEXER_PROFILE=1.
         #[arg(long)]
         profile: bool,
+        /// Collapse idGd entries that share the same element type and effect text (default: true).
+        #[arg(long, default_value_t = true)]
+        merge_duplicated_abilities: bool,
     },
     /// Decode a global bit index to a card reference.
     Decode {
@@ -112,6 +116,9 @@ pub enum Command {
         /// Full output directory for merged index (files written directly under this folder).
         #[arg(long)]
         out: PathBuf,
+        /// Collapse idGd entries that share the same element type and effect text (default: true).
+        #[arg(long, default_value_t = true)]
+        merge_duplicated_abilities: bool,
     },
     /// Find missing cards in gap-suspect families (max_unique_id != card_count).
     AuditMissing {
@@ -160,6 +167,12 @@ pub enum Command {
         #[arg(long, default_value_t = false)]
         json_samples: bool,
     },
+    /// Collapse idGd entries with identical effect text on an existing index.
+    DedupAbilities {
+        /// Index directory (contains manifest.json, idgd_catalog.json, id_gd/, cards.bin)
+        #[arg(long)]
+        index_dir: PathBuf,
+    },
     /// Register a card-list filter built from a refs file on an existing index.
     AddExtraFilter {
         /// Index root containing `catalog.json` and `manifest.json`.
@@ -192,6 +205,7 @@ pub fn run() -> Result<()> {
             out,
             limit,
             profile,
+            merge_duplicated_abilities,
         } => {
             let summary = build::build(
                 &root,
@@ -200,6 +214,7 @@ pub fn run() -> Result<()> {
                 build::BuildOptions {
                     file_limit: limit,
                     profile,
+                    merge_duplicated_abilities,
                 },
             )?;
             let limit_note = match summary.file_limit {
@@ -292,8 +307,16 @@ pub fn run() -> Result<()> {
             index_dir,
             sets,
             out,
+            merge_duplicated_abilities,
         } => {
-            let summary = merge::merge_indexes(&index_dir, &sets, &out)?;
+            let summary = merge::merge_indexes(
+                &index_dir,
+                &sets,
+                &out,
+                merge::MergeOptions {
+                    merge_duplicated_abilities,
+                },
+            )?;
             println!(
                 "merged {}: {} source sets, {} cards, {} families, {} idGd bitmaps, bit span {}",
                 summary.output_dir.display(),
@@ -339,6 +362,24 @@ pub fn run() -> Result<()> {
                     json_samples,
                 },
             )?;
+        }
+        Command::DedupAbilities { index_dir } => {
+            let summary = idgd_collapse::dedup_abilities_on_disk(&index_dir)?;
+            if summary.collapsed_pairs == 0 {
+                println!(
+                    "dedup-abilities {}: 0 new collapses (id_gd={})",
+                    summary.index_dir.display(),
+                    summary.id_gd_after
+                );
+            } else {
+                println!(
+                    "dedup-abilities {}: {} collapsed, id_gd {} -> {}",
+                    summary.index_dir.display(),
+                    summary.collapsed_pairs,
+                    summary.id_gd_before,
+                    summary.id_gd_after
+                );
+            }
         }
         Command::AddExtraFilter {
             index_dir,

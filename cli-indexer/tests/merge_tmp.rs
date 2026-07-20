@@ -1,5 +1,5 @@
 use index_core::catalog::Catalog;
-use index_core::merge::merge_indexes;
+use index_core::merge::{merge_indexes, MergeOptions};
 use roaring::RoaringBitmap;
 use serde_json::json;
 use std::fs;
@@ -117,7 +117,13 @@ fn merge_overlap_group_interleaves_families_and_preserves_set_for_decode() {
     make_set_index(index_dir.path(), "ALIZE", &[("BR", "01", 2)], &[(90, &[1])]);
 
     let out = merged_root.path().join("COREKS_CORE_ALIZE");
-    let summary = merge_indexes(index_dir.path(), "COREKS,CORE,ALIZE", &out).expect("merge");
+    let summary = merge_indexes(
+        index_dir.path(),
+        "COREKS,CORE,ALIZE",
+        &out,
+        MergeOptions::default(),
+    )
+    .expect("merge");
     assert_eq!(summary.total_bit_span, 3 + 3 + 2);
 
     // Overlap group (COREKS+CORE) interleaves within AX_04:

@@ -19,6 +19,8 @@ pub struct EffectPartWithRegion {
     pub text: BTreeMap<String, String>,
     pub is_echo: bool,
     pub is_main: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub duplicated_id_gd: Vec<u32>,
 }
 
 /// `GET /api/v2/effects/filtered` response body.

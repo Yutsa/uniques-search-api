@@ -9,6 +9,7 @@ use index_core::catalog::{Catalog, FamilyCardSubType, FamilyEntry, FamilySet, FA
 use index_core::compact::{encode_record, CompactCardFields, RECORD_SIZE};
 use index_core::faction_index::Faction;
 use index_core::idgd_catalog::{IdGdCatalog, IdGdCatalogEntry};
+use index_core::idgd_collapse::IdGdAliasMap;
 use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
 
@@ -77,6 +78,7 @@ pub(crate) fn test_state() -> AppState {
                 ec: None,
                 is_main: true,
                 is_echo: false,
+                duplicated_id_gd: Vec::new(),
             },
             IdGdCatalogEntry {
                 id_gd: 191,
@@ -91,6 +93,7 @@ pub(crate) fn test_state() -> AppState {
                 ec: None,
                 is_main: true,
                 is_echo: false,
+                duplicated_id_gd: Vec::new(),
             },
             IdGdCatalogEntry {
                 id_gd: 42,
@@ -105,6 +108,7 @@ pub(crate) fn test_state() -> AppState {
                 ec: None,
                 is_main: false,
                 is_echo: true,
+                duplicated_id_gd: Vec::new(),
             },
             IdGdCatalogEntry {
                 id_gd: 90,
@@ -119,6 +123,7 @@ pub(crate) fn test_state() -> AppState {
                 ec: None,
                 is_main: true,
                 is_echo: false,
+                duplicated_id_gd: Vec::new(),
             },
             IdGdCatalogEntry {
                 id_gd: 25,
@@ -133,6 +138,7 @@ pub(crate) fn test_state() -> AppState {
                 ec: None,
                 is_main: true,
                 is_echo: false,
+                duplicated_id_gd: Vec::new(),
             },
             IdGdCatalogEntry {
                 id_gd: 192,
@@ -147,6 +153,7 @@ pub(crate) fn test_state() -> AppState {
                 ec: None,
                 is_main: true,
                 is_echo: false,
+                duplicated_id_gd: Vec::new(),
             },
         ],
     };
@@ -203,11 +210,14 @@ pub(crate) fn test_state() -> AppState {
     let family_lookup_index = build_family_lookup_index(&catalog);
     let family_span_groups = build_family_span_groups(&catalog);
 
+    let id_gd_aliases = IdGdAliasMap::from_catalog(&idgd_catalog);
+
     let index = UniquesIndex {
         index_dir: "C:\\tmp\\index".into(),
         catalog,
         manifest,
         idgd_catalog,
+        id_gd_aliases,
         effects_body,
         stats_summary,
         factions_summary,
@@ -325,6 +335,7 @@ pub(crate) fn test_state_with_sets() -> AppState {
             set: "ALL_SETS".to_string(),
             entries: vec![],
         },
+        id_gd_aliases: IdGdAliasMap::default(),
         effects_body: Arc::new(Bytes::from_static(b"{}")),
         stats_summary: StatsSummary {
             version: 1,

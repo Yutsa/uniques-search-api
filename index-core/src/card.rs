@@ -124,6 +124,17 @@ pub struct LocaleText {
     pub text: String,
 }
 
+/// Pick translated effect text for a locale with `en_US` then first-available fallback.
+pub fn translation_text(map: &BTreeMap<String, LocaleText>, locale: &str) -> String {
+    if let Some(t) = map.get(locale) {
+        return t.text.clone();
+    }
+    if let Some(t) = map.get("en_US") {
+        return t.text.clone();
+    }
+    map.values().next().map(|t| t.text.clone()).unwrap_or_default()
+}
+
 #[derive(Debug, Clone)]
 pub struct IdGdOccurrence {
     pub id_gd: u32,

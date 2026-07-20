@@ -55,7 +55,8 @@ pub(crate) fn other_two_buckets(part: Part, t: &[u32], c: &[u32], o: &[u32]) -> 
 pub(crate) fn union_on_line(state: &UniquesIndex, line: EffectLine, ids: &[u32]) -> RoaringBitmap {
     let mut out = RoaringBitmap::new();
     for &id in ids {
-        if let Some(bm) = state.id_gd_per_line().get(&(id, line)) {
+        let resolved = state.resolve_id_gd(id);
+        if let Some(bm) = state.id_gd_per_line().get(&(resolved, line)) {
             out |= bm;
         }
     }

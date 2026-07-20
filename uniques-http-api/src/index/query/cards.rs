@@ -337,9 +337,10 @@ fn bitmap_line_any_ids(state: &UniquesIndex, line: EffectLine, ids: &[u32]) -> R
 }
 
 fn bitmap_line(state: &UniquesIndex, line: EffectLine, id_gd: u32) -> RoaringBitmap {
+    let resolved = state.resolve_id_gd(id_gd);
     state
         .id_gd_per_line()
-        .get(&(id_gd, line))
+        .get(&(resolved, line))
         .cloned()
         .unwrap_or_else(RoaringBitmap::new)
 }

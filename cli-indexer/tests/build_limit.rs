@@ -30,6 +30,7 @@ fn discovery_stops_at_limit() {
         BuildOptions {
             file_limit: Some(10),
             profile: false,
+            ..Default::default()
         },
     )
     .expect("build");

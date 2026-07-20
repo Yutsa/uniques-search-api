@@ -40,6 +40,7 @@ fn build_fixture_index() -> (tempfile::TempDir, PathBuf) {
         build::BuildOptions {
             file_limit: None,
             profile: false,
+            ..Default::default()
         },
     )
     .expect("build");

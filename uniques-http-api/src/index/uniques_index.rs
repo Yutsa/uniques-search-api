@@ -8,6 +8,7 @@ use index_core::catalog::Catalog;
 use index_core::compact::{CompactCardView, RECORD_SIZE};
 use index_core::faction_index::Faction;
 use index_core::idgd_catalog::IdGdCatalog;
+use index_core::idgd_collapse::IdGdAliasMap;
 use index_core::path::parse_card_reference;
 use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
@@ -23,6 +24,7 @@ pub struct UniquesIndex {
     pub catalog: Catalog,
     pub manifest: IndexManifest,
     pub idgd_catalog: IdGdCatalog,
+    pub id_gd_aliases: IdGdAliasMap,
     pub stats_summary: StatsSummary,
     pub factions_summary: FactionsSummary,
     pub cards: Vec<u8>,
@@ -66,6 +68,14 @@ impl UniquesIndex {
 
     pub fn idgd_catalog(&self) -> &IdGdCatalog {
         &self.idgd_catalog
+    }
+
+    pub fn id_gd_aliases(&self) -> &IdGdAliasMap {
+        &self.id_gd_aliases
+    }
+
+    pub fn resolve_id_gd(&self, id: u32) -> u32 {
+        self.id_gd_aliases.resolve(id)
     }
 
     pub fn stats_summary(&self) -> &StatsSummary {
