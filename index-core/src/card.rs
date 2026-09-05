@@ -29,6 +29,16 @@ pub struct CardJson {
     pub main_faction: Option<MainFaction>,
     #[serde(default)]
     pub card_elements: Vec<CardElement>,
+    #[serde(default)]
+    pub is_banned: bool,
+    #[serde(default)]
+    pub is_errated: bool,
+    #[serde(default)]
+    pub is_suspended: bool,
+    /// CardsData's canonical `CardFamilyId` — `None` on the original Equinox JSON-crawl path
+    /// (which has no CardsData id to offer), `Some` when sourced via `cardsdata.rs`.
+    #[serde(default)]
+    pub card_family_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -424,6 +434,7 @@ pub fn family_metadata_from_card(card: &CardJson) -> crate::catalog::FamilyMetad
         artist: family_artist(card),
         card_sub_types: family_card_sub_types(card),
         set: family_set(card),
+        card_family_id: card.card_family_id,
     }
 }
 

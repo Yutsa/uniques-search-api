@@ -2,6 +2,8 @@ pub mod cards;
 pub mod collections;
 pub(crate) mod error;
 pub mod effects;
+pub mod family;
+pub mod search;
 
 use axum::Router;
 
@@ -13,4 +15,6 @@ pub fn router(collections: &CollectionsSettings) -> Router<ServerState> {
         .merge(cards::router())
         .merge(collections::router(collections))
         .merge(effects::router())
+        .merge(family::router())
+        .merge(search::router())
 }

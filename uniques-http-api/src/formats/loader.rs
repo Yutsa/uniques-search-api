@@ -288,6 +288,7 @@ mod tests {
                     name: String::new(),
                     code: None,
                 },
+                card_family_id: None,
             }],
             total_bit_span: 2,
         };
@@ -331,6 +332,10 @@ mod tests {
             stats: BTreeMap::new(),
             factions: BTreeMap::new(),
             set_bitmaps,
+            subtype_bitmaps: BTreeMap::new(),
+            banned: RoaringBitmap::new(),
+            errated: RoaringBitmap::new(),
+            suspended: RoaringBitmap::new(),
             name_search_index: build_name_search_index(&catalog),
             family_lookup_index: build_family_lookup_index(&catalog),
             family_span_groups: build_family_span_groups(&catalog),

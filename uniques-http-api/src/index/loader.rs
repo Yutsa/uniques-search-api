@@ -25,12 +25,14 @@ use crate::index::UniquesIndex;
 pub mod archive;
 pub mod disk;
 pub mod http;
+pub mod nonunique;
 pub mod object_store;
 pub mod storage;
 
 pub use archive::TarZstIndexStorage;
 pub use disk::DiskIndexStorage;
 pub use http::{load_app_state_from_http, load_index_from_http, HttpIndexClient};
+pub use nonunique::{load_nonunique_index, NonUniqueQueryIndex};
 pub use object_store::{load_app_state_from_object_store, load_index_from_object_store, ObjectStoreIndexClient};
 pub use storage::IndexStorage;
 
@@ -117,6 +119,35 @@ pub fn build_set_bitmaps(catalog: &Catalog) -> SetBitmaps {
         by_set,
         core_and_coreks,
     }
+}
+
+/// One bitmap per `CardSubTypeReference`, expanded from each family's bit-span — mirrors
+/// `build_set_bitmaps` exactly, but a family can carry more than one subtype, so a print can end
+/// up in more than one bitmap here (unlike sets, which partition the cards).
+///
+/// Derived entirely from `catalog.json` (`family.card_sub_types` is already there for display) —
+/// no new bitmap files, no `cli-indexer` changes needed.
+pub fn build_subtype_bitmaps(catalog: &Catalog) -> BTreeMap<String, RoaringBitmap> {
+    let mut by_subtype: BTreeMap<String, RoaringBitmap> = BTreeMap::new();
+    for family in &catalog.families {
+        let end = family.start_bit.saturating_add(family.max_unique_id);
+        for sub_type in &family.card_sub_types {
+            by_subtype
+                .entry(sub_type.reference.clone())
+                .or_insert_with(RoaringBitmap::new)
+                .insert_range(family.start_bit..end);
+        }
+    }
+    by_subtype
+}
+
+/// `Ok(empty bitmap)` when `relative_path` isn't present — a status flag with zero matches on
+/// this set, or an index built before status flags existed, are indistinguishable and both fine.
+fn load_status_flag(storage: &impl IndexStorage, relative_path: &str) -> Result<RoaringBitmap> {
+    if !storage.has_file(relative_path) {
+        return Ok(RoaringBitmap::new());
+    }
+    read_roar(storage, relative_path)
 }
 
 /// Lowercased locale names per catalog family row, built once at index load.
@@ -377,6 +408,19 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
     eprintln!("  faction bitmaps: {}", factions.len());
 
     let set_bitmaps = build_set_bitmaps(&catalog);
+    let subtype_bitmaps = build_subtype_bitmaps(&catalog);
+    eprintln!("  subtype bitmaps: {} subtypes", subtype_bitmaps.len());
+
+    let banned = load_status_flag(storage, "status/banned.roar")?;
+    let errated = load_status_flag(storage, "status/errated.roar")?;
+    let suspended = load_status_flag(storage, "status/suspended.roar")?;
+    eprintln!(
+        "  status flags: banned={} errated={} suspended={}",
+        banned.len(),
+        errated.len(),
+        suspended.len()
+    );
+
     eprintln!(
         "  set bitmaps: {} sets{}",
         set_bitmaps.by_set.len(),
@@ -434,6 +478,10 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         stats,
         factions,
         set_bitmaps,
+        subtype_bitmaps,
+        banned,
+        errated,
+        suspended,
         name_search_index,
         family_lookup_index,
         family_span_groups,
@@ -446,11 +494,27 @@ pub fn load_uniques_index(index_dir: &Path) -> Result<UniquesIndex> {
     load_uniques_index_from(&DiskIndexStorage::new(index_dir)?)
 }
 
+/// `Ok(empty)` when this storage root has no `families.json` — older build, or nothing built via
+/// the CardsData path yet.
+pub fn load_family_catalog(
+    storage: &impl IndexStorage,
+) -> Result<BTreeMap<i64, index_core::family_catalog::FamilyCatalogEntry>> {
+    if !storage.has_file("families.json") {
+        return Ok(BTreeMap::new());
+    }
+    let catalog: index_core::family_catalog::FamilyCatalog = read_json(storage, "families.json")?;
+    Ok(catalog.families.into_iter().map(|f| (f.id, f)).collect())
+}
+
 /// Load index and format filters; wrap in [`AppState`].
 pub fn load_app_state(settings: &Settings) -> Result<AppState> {
-    let index = match settings.index.source {
+    let (index, nonunique, families) = match settings.index.source {
         crate::config::IndexSourceKind::Disk | crate::config::IndexSourceKind::Archive => {
-            load_uniques_index_from(&open_index_storage(&settings.index_path()?)?)?
+            let storage = open_index_storage(&settings.index_path()?)?;
+            let index = load_uniques_index_from(&storage)?;
+            let nonunique = load_nonunique_index(&storage)?;
+            let families = load_family_catalog(&storage)?;
+            (index, nonunique, families)
         }
         crate::config::IndexSourceKind::ObjectStore => {
             bail!("load_app_state for object_store: use load_index_from_object_store in main")
@@ -459,16 +523,23 @@ pub fn load_app_state(settings: &Settings) -> Result<AppState> {
             bail!("load_app_state for http: use load_index_from_http in main")
         }
     };
-    Ok(build_app_state(index, settings))
+    Ok(build_app_state(index, nonunique, families, settings))
 }
 
-pub fn build_app_state(index: UniquesIndex, settings: &Settings) -> AppState {
+pub fn build_app_state(
+    index: UniquesIndex,
+    nonunique: Option<NonUniqueQueryIndex>,
+    families: BTreeMap<i64, index_core::family_catalog::FamilyCatalogEntry>,
+    settings: &Settings,
+) -> AppState {
     let formats = match settings.formats.as_ref().filter(|f| f.is_enabled()) {
         Some(formats_settings) => Arc::new(load_format_index(&index, formats_settings)),
         None => Arc::new(FormatIndex::empty()),
     };
     AppState::new(QuerySnapshot {
         index: Arc::new(index),
+        families: Arc::new(families),
+        nonunique: nonunique.map(Arc::new),
         formats,
         collections: CollectionStore::new(&settings.collections),
     })
@@ -634,6 +705,7 @@ mod tests {
                 name: String::new(),
                 code: None,
             },
+            card_family_id: None,
         }
     }
 

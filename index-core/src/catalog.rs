@@ -35,6 +35,9 @@ pub struct FamilyMetadata {
     pub artist: String,
     pub card_sub_types: Vec<FamilyCardSubType>,
     pub set: FamilySet,
+    /// CardsData's canonical `CardFamilyId` — see `card.rs`'s `CardJson::card_family_id` doc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_family_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +58,8 @@ pub struct FamilyEntry {
     pub artist: String,
     pub card_sub_types: Vec<FamilyCardSubType>,
     pub set: FamilySet,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_family_id: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +169,7 @@ impl CatalogBuilder {
                 artist: c.metadata.artist,
                 card_sub_types: c.metadata.card_sub_types,
                 set: c.metadata.set,
+                card_family_id: c.metadata.card_family_id,
             });
             self.next_start_bit = self
                 .next_start_bit
@@ -283,6 +289,10 @@ mod tests {
             card_set: None,
             main_faction: None,
             card_elements: Vec::new(),
+            is_banned: false,
+            is_errated: false,
+            is_suspended: false,
+            card_family_id: None,
         }
     }
 

@@ -65,7 +65,7 @@ pub async fn get_cards_v2(
 
     let (cards, next_cursor, families) = if req.with_families && req.cursor.is_none() {
         let (families, example_indices) =
-            families_from_bitmap(&index, &bitmap).map_err(map_query_error)?;
+            families_from_bitmap(&index, &bitmap, req.page, req.limit).map_err(map_query_error)?;
         let cards = cards_from_indices(&index, &example_indices, req.debug_bga_trigram)
             .map_err(map_query_error)?;
         (cards, None, Some(families))
@@ -74,6 +74,7 @@ pub async fn get_cards_v2(
             &index,
             &bitmap,
             req.cursor,
+            req.page,
             req.limit,
             req.debug_bga_trigram,
         )
@@ -85,6 +86,7 @@ pub async fn get_cards_v2(
         iter: CardsIter {
             total,
             cursor: next_cursor,
+            page: req.page,
         },
         cards,
         families,

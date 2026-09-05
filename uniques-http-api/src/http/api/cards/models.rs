@@ -11,6 +11,10 @@ pub struct CardsIter {
     pub total: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<u32>,
+    /// Echoes the request's `page` when page-based pagination was used (mutually exclusive with
+    /// `cursor` — see `CardsRequest::page`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -163,6 +167,9 @@ pub(crate) enum CostPredicate {
 pub struct CardsRequest {
     pub limit: usize,
     pub cursor: Option<u32>,
+    /// 1-indexed direct page access (via bitmap rank/select), mutually exclusive with `cursor`.
+    /// See `uniques-http-api/plans/20-page-pagination.md`.
+    pub page: Option<u32>,
     pub filters: AbilityFilters,
     pub factions: Vec<Faction>,
     pub sets: Vec<String>,

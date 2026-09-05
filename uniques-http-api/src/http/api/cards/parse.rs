@@ -31,11 +31,11 @@ pub(crate) fn parse_query_multimap(query: Option<&str>) -> ApiResult<QueryMultiM
     Ok(out)
 }
 
-fn get_first<'a>(params: &'a QueryMultiMap, key: &str) -> Option<&'a str> {
+pub(crate) fn get_first<'a>(params: &'a QueryMultiMap, key: &str) -> Option<&'a str> {
     params.get(key)?.first().map(|s| s.as_str())
 }
 
-fn has_any(params: &QueryMultiMap, key: &str) -> bool {
+pub(crate) fn has_any(params: &QueryMultiMap, key: &str) -> bool {
     params.get(key).is_some_and(|v| v.iter().any(|s| !s.trim().is_empty()))
 }
 
@@ -55,7 +55,7 @@ pub(crate) fn parse_collection(params: &QueryMultiMap) -> Option<String> {
     Some(last)
 }
 
-fn resolve_collection_filter(
+pub(crate) fn resolve_collection_filter(
     collection_id: Option<String>,
     collections: &CollectionStore,
 ) -> ApiResult<Option<String>> {
@@ -88,7 +88,7 @@ pub(crate) fn parse_format(params: &QueryMultiMap) -> Option<String> {
     Some(last)
 }
 
-fn resolve_format_filter(
+pub(crate) fn resolve_format_filter(
     format_id: Option<String>,
     formats_enabled: bool,
     format_index: &FormatIndex,
@@ -139,6 +139,19 @@ pub(crate) fn parse_request(
         }
     }
 
+    let page = match get_first(params, "page") {
+        None => None,
+        Some(v) => Some(parse_u32("page", v)?),
+    };
+    if page.is_some_and(|p| p == 0) {
+        return Err(bad_request("page must be >= 1".to_string()));
+    }
+    if cursor.is_some() && page.is_some() {
+        return Err(bad_request(
+            "cursor and page are mutually exclusive: page jumps directly to a page (via rank/select), cursor resumes after the last seen card_index".to_string(),
+        ));
+    }
+
     let mut filters = AbilityFilters::default();
     filters.effects = parse_effect_slots(params)?;
     filters.effect_mode = parse_effect_mode(params)?;
@@ -171,6 +184,7 @@ pub(crate) fn parse_request(
     Ok(CardsRequest {
         limit,
         cursor,
+        page,
         filters,
         factions,
         sets,
@@ -218,7 +232,7 @@ fn parse_id_list(params: &QueryMultiMap, key: &str) -> ApiResult<Vec<u32>> {
     Ok(out)
 }
 
-fn parse_effect_mode(params: &QueryMultiMap) -> ApiResult<EffectCombineMode> {
+pub(crate) fn parse_effect_mode(params: &QueryMultiMap) -> ApiResult<EffectCombineMode> {
     let Some(raw) = get_first(params, "effectMode") else {
         return Ok(EffectCombineMode::And);
     };
@@ -237,7 +251,7 @@ enum EffectFieldSelector {
 }
 
 /// Parses `effect[N][t|c|o|matchCount]` keys into ordered slots (sparse indices allowed).
-fn parse_effect_slots(params: &QueryMultiMap) -> ApiResult<Vec<EffectSlotFilter>> {
+pub(crate) fn parse_effect_slots(params: &QueryMultiMap) -> ApiResult<Vec<EffectSlotFilter>> {
     let mut by_index: BTreeMap<u32, EffectSlotFilter> = BTreeMap::new();
 
     for key in params.keys() {
@@ -432,7 +446,7 @@ fn parse_sets(params: &QueryMultiMap) -> ApiResult<Vec<String>> {
     Ok(out)
 }
 
-fn parse_cost_u8(field: &str, s: &str) -> ApiResult<u8> {
+pub(crate) fn parse_cost_u8(field: &str, s: &str) -> ApiResult<u8> {
     let v = s
         .parse::<u8>()
         .map_err(|_| bad_request(format!("invalid {field} value '{s}'")))?;
@@ -444,7 +458,7 @@ fn parse_cost_u8(field: &str, s: &str) -> ApiResult<u8> {
     Ok(v)
 }
 
-fn parse_cost_array(params: &QueryMultiMap, key: &str) -> ApiResult<Option<Vec<u8>>> {
+pub(crate) fn parse_cost_array(params: &QueryMultiMap, key: &str) -> ApiResult<Option<Vec<u8>>> {
     let Some(values) = params.get(key) else {
         return Ok(None);
     };
@@ -471,7 +485,7 @@ fn parse_cost_array(params: &QueryMultiMap, key: &str) -> ApiResult<Option<Vec<u
     }
 }
 
-fn parse_cost_predicate(params: &QueryMultiMap, base: &str) -> ApiResult<Option<CostPredicate>> {
+pub(crate) fn parse_cost_predicate(params: &QueryMultiMap, base: &str) -> ApiResult<Option<CostPredicate>> {
     let exact_key = base;
     let array_key = format!("{base}[]");
     let gt_key = format!("{base}[gt]");
@@ -529,7 +543,7 @@ fn parse_cost_predicate(params: &QueryMultiMap, base: &str) -> ApiResult<Option<
     Ok(None)
 }
 
-fn validate_idgd_types(state: &UniquesIndex, filters: &AbilityFilters) -> ApiResult<()> {
+pub(crate) fn validate_idgd_types(state: &UniquesIndex, filters: &AbilityFilters) -> ApiResult<()> {
     let mut types: BTreeMap<u32, &str> = BTreeMap::new();
     for entry in &state.idgd_catalog().entries {
         types.insert(entry.id_gd, entry.element_type.as_str());
@@ -759,6 +773,32 @@ mod tests {
         params.insert("effect[0][t]".to_string(), vec!["24".to_string()]);
         let err = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap_err();
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+    #[test]
+    fn cursor_and_page_together_rejected() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("cursor".to_string(), vec!["2".to_string()]);
+        params.insert("page".to_string(), vec!["2".to_string()]);
+        let err = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+    #[test]
+    fn page_zero_rejected() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("page".to_string(), vec!["0".to_string()]);
+        let err = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+    #[test]
+    fn page_parses_when_valid() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("page".to_string(), vec!["3".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert_eq!(req.page, Some(3));
+        assert_eq!(req.cursor, None);
     }
     #[test]
     fn invalid_effect_mode_rejected() {

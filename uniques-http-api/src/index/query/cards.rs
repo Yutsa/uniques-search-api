@@ -169,8 +169,8 @@ pub(crate) fn build_bitmap(
     }
 
     if let Some(id) = &req.collection {
-        if let Some(bitmap) = collections.get(id) {
-            groups.push(bitmap.as_ref().clone());
+        if let Some(bitmaps) = collections.get(id) {
+            groups.push(bitmaps.unique.clone());
         }
     }
 
@@ -235,7 +235,7 @@ fn bitmap_for_cost_predicate(
     Ok(out)
 }
 
-fn combine_effect_bitmaps(
+pub(crate) fn combine_effect_bitmaps(
     bitmaps: &[RoaringBitmap],
     mode: EffectCombineMode,
 ) -> Option<RoaringBitmap> {
@@ -257,7 +257,7 @@ fn combine_effect_bitmaps(
     Some(out)
 }
 
-fn effect_slot_bitmap(
+pub(crate) fn effect_slot_bitmap(
     state: &UniquesIndex,
     triggers: &[u32],
     conditions: &[u32],
@@ -424,12 +424,20 @@ fn family_match_from_index(
     })
 }
 
+/// `page` is 1-indexed and always applied (defaulting to page 1) — an unbounded response here is
+/// exactly the "browsing a whole unique category crashes the renderer" problem Lot 3 fixes, so
+/// unlike before this lot, `withFamilies` no longer returns every matching family in one response.
 pub(crate) fn families_from_bitmap(
     state: &UniquesIndex,
     bitmap: &RoaringBitmap,
+    page: Option<u32>,
+    limit: usize,
 ) -> QueryResult<(Vec<FamilyMatchV2>, Vec<u32>)> {
-    let mut families = Vec::new();
-    let mut example_indices = Vec::new();
+    // Matching families are found by walking `family_span_groups()` (bounded by family count,
+    // not by how many cards matched), so this pass stays cheap even for a huge bitmap. Only the
+    // page we're about to return goes through `family_match_from_index` below, which does real
+    // work (catalog/reference lookups).
+    let mut matches = Vec::new();
     for group in state.family_span_groups() {
         let count = bitmap.range_cardinality(group.range_start..group.range_end);
         if count == 0 {
@@ -440,6 +448,13 @@ pub(crate) fn families_from_bitmap(
         else {
             continue;
         };
+        matches.push((group, count, card_index));
+    }
+
+    let start = page.unwrap_or(1).saturating_sub(1) as usize * limit;
+    let mut families = Vec::new();
+    let mut example_indices = Vec::new();
+    for (group, count, card_index) in matches.into_iter().skip(start).take(limit) {
         families.push(family_match_from_index(
             state,
             card_index,
@@ -475,12 +490,10 @@ pub(crate) fn page_cards_v2(
     state: &UniquesIndex,
     bitmap: &RoaringBitmap,
     cursor: Option<u32>,
+    page: Option<u32>,
     limit: usize,
     debug_bga_trigram: bool,
 ) -> QueryResult<(Vec<CardV2>, Option<u32>)> {
-    let mut out = Vec::with_capacity(limit);
-    let mut last_index: Option<u32> = None;
-
     let idgd_by_id: BTreeMap<u32, &IdGdCatalogEntry> = state
         .idgd_catalog()
         .entries
@@ -488,25 +501,61 @@ pub(crate) fn page_cards_v2(
         .map(|e| (e.id_gd, e))
         .collect();
 
-    for card_index in bitmap.iter() {
-        if cursor.is_some_and(|c| card_index <= c) {
-            continue;
-        }
+    let indices = window_indices(bitmap, cursor, page, limit);
+
+    let mut out = Vec::with_capacity(indices.len());
+    for card_index in &indices {
         out.push(card_v2_from_index(
             state,
-            card_index,
+            *card_index,
             &idgd_by_id,
             debug_bga_trigram,
         )?);
-        last_index = Some(card_index);
-        if out.len() >= limit {
-            break;
-        }
     }
 
-    let next_cursor = if out.len() == limit { last_index } else { None };
+    // The "there's more, here's where to resume" cursor only makes sense for the legacy scheme —
+    // page-based pagination doesn't need it, the client just requests `page + 1` directly.
+    let next_cursor = if page.is_none() && out.len() == limit {
+        indices.last().copied()
+    } else {
+        None
+    };
 
     Ok((out, next_cursor))
+}
+
+/// `limit` elements from `bitmap`, starting either:
+/// - at `page` (1-indexed) via `select` — direct access to any page's rank, no need to have seen
+///   previous pages (this is what lets a client jump straight to page 12); or
+/// - strictly after `cursor` via `advance_to` — legacy resume-by-last-index, still avoiding a scan
+///   from the start even though the caller must already hold that cursor; or
+/// - from the very first element when neither is given.
+///
+/// `page` and `cursor` are mutually exclusive (rejected at parse time); `page` wins here if both
+/// somehow reach this function.
+fn window_indices(
+    bitmap: &RoaringBitmap,
+    cursor: Option<u32>,
+    page: Option<u32>,
+    limit: usize,
+) -> Vec<u32> {
+    if let Some(page) = page {
+        let start_rank = page.saturating_sub(1).saturating_mul(limit as u32);
+        return match bitmap.select(start_rank) {
+            Some(first) => {
+                let mut it = bitmap.iter();
+                it.advance_to(first);
+                it.take(limit).collect()
+            }
+            None => Vec::new(),
+        };
+    }
+
+    let mut it = bitmap.iter();
+    if let Some(c) = cursor {
+        it.advance_to(c.saturating_add(1));
+    }
+    it.take(limit).collect()
 }
 
 fn faction_from_code(code: u8) -> String {
@@ -681,7 +730,7 @@ mod tests {
         bmp.insert(1);
         bmp.insert(6);
 
-        let (families, ensure) = families_from_bitmap(state.index().as_ref(), &bmp).unwrap();
+        let (families, ensure) = families_from_bitmap(state.index().as_ref(), &bmp, None, 50).unwrap();
         assert_eq!(families.len(), 1);
         assert_eq!(families[0].family_id, "AX_01");
         assert_eq!(families[0].count, 2);
@@ -704,7 +753,7 @@ mod tests {
         for i in 0..15 {
             bmp.insert(i);
         }
-        let (families, ensure) = families_from_bitmap(state.index().as_ref(), &bmp).unwrap();
+        let (families, ensure) = families_from_bitmap(state.index().as_ref(), &bmp, None, 50).unwrap();
         assert_eq!(families.len(), 2);
 
         let cards = cards_from_indices(state.index().as_ref(), &ensure, false).unwrap();
@@ -764,7 +813,7 @@ mod tests {
         params.insert("limit".to_string(), vec!["1".to_string()]);
         let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
         let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
-        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, 1, false).unwrap();
+        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, None, 1, false).unwrap();
         let card = &page[0];
         assert_eq!(card.name.get("en_US").map(String::as_str), Some("Test Card"));
         assert_eq!(card.artist, "Test Artist");
@@ -784,21 +833,68 @@ mod tests {
         let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
         let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
 
-        let (page1, cur1) = page_cards_v2(state.index().as_ref(), &bmp, None, 1, false).unwrap();
+        let (page1, cur1) = page_cards_v2(state.index().as_ref(), &bmp, None, None, 1, false).unwrap();
         assert_eq!(page1.len(), 1);
         assert_eq!(page1[0].reference, "ALT_TEST_B_AX_01_U_3"); // card_index 2 => unique_id 3
         assert_eq!(cur1, Some(2));
 
-        let (page2, cur2) = page_cards_v2(state.index().as_ref(), &bmp, cur1, 1, false).unwrap();
+        let (page2, cur2) = page_cards_v2(state.index().as_ref(), &bmp, cur1, None, 1, false).unwrap();
         assert_eq!(page2.len(), 1);
         assert_eq!(page2[0].reference, "ALT_TEST_B_AX_01_U_6"); // card_index 5 => unique_id 6
         assert_eq!(cur2, Some(5));
 
-        let (page3, cur3) = page_cards_v2(state.index().as_ref(), &bmp, cur2, 1, false).unwrap();
+        let (page3, cur3) = page_cards_v2(state.index().as_ref(), &bmp, cur2, None, 1, false).unwrap();
         assert!(page3.is_empty());
         assert_eq!(cur3, None);
     }
 
+    #[test]
+    fn page_param_matches_sequential_cursor_paging() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("effect[0][t]".to_string(), vec!["24".to_string()]);
+        params.insert("limit".to_string(), vec!["1".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+
+        // Same two-card result set as `paging_uses_raw_card_index_cursor`, but accessed directly
+        // by page (rank/select) instead of by walking cursors sequentially.
+        let (page1, cur1) = page_cards_v2(state.index().as_ref(), &bmp, None, Some(1), 1, false).unwrap();
+        assert_eq!(page1.len(), 1);
+        assert_eq!(page1[0].reference, "ALT_TEST_B_AX_01_U_3");
+        assert_eq!(cur1, None, "page-based pagination doesn't need a cursor");
+
+        let (page2, _) = page_cards_v2(state.index().as_ref(), &bmp, None, Some(2), 1, false).unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].reference, "ALT_TEST_B_AX_01_U_6");
+
+        // Page 3 doesn't exist for a 2-element bitmap at limit=1 — empty, not an error.
+        let (page3, _) = page_cards_v2(state.index().as_ref(), &bmp, None, Some(3), 1, false).unwrap();
+        assert!(page3.is_empty());
+    }
+
+    #[test]
+    fn families_from_bitmap_paginates() {
+        let state = test_state_with_sets();
+        let mut bmp = RoaringBitmap::new();
+        for i in 0..15 {
+            bmp.insert(i);
+        }
+
+        let (all, _) = families_from_bitmap(state.index().as_ref(), &bmp, None, 50).unwrap();
+        assert_eq!(all.len(), 2, "sanity: two families match in this fixture");
+
+        let (page1, _) = families_from_bitmap(state.index().as_ref(), &bmp, Some(1), 1).unwrap();
+        assert_eq!(page1.len(), 1);
+        assert_eq!(page1[0].family_id, all[0].family_id);
+
+        let (page2, _) = families_from_bitmap(state.index().as_ref(), &bmp, Some(2), 1).unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].family_id, all[1].family_id);
+
+        let (page3, _) = families_from_bitmap(state.index().as_ref(), &bmp, Some(3), 1).unwrap();
+        assert!(page3.is_empty());
+    }
 
     #[test]
     fn set_filter_uses_combined_core_coreks_bitmap() {
@@ -1073,10 +1169,10 @@ mod tests {
         params.insert("limit".to_string(), vec!["1".to_string()]);
         let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
         let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
-        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, 1, true).unwrap();
+        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, None, 1, true).unwrap();
         assert_eq!(page[0].debug_bga_trigram.as_deref(), Some("24/191/90;24/0/42"));
 
-        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, 1, false).unwrap();
+        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, None, 1, false).unwrap();
         assert!(page[0].debug_bga_trigram.is_none());
     }
 
@@ -1089,7 +1185,7 @@ mod tests {
         params.insert("limit".to_string(), vec!["1".to_string()]);
         let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
         let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
-        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, 1, true).unwrap();
+        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, None, 1, true).unwrap();
         let json = serde_json::to_value(&page[0]).unwrap();
         assert_eq!(json["debug_bga_trigram"], "24/191/90;24/0/42");
     }

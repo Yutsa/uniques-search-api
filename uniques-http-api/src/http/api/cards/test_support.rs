@@ -47,6 +47,7 @@ pub(crate) fn test_state() -> AppState {
                 name: "Test Set".to_string(),
                 code: Some("BTG".to_string()),
             },
+            card_family_id: Some(1),
         }],
         total_bit_span: 10,
     };
@@ -261,6 +262,10 @@ pub(crate) fn test_state() -> AppState {
             factions
         },
         set_bitmaps,
+        subtype_bitmaps: BTreeMap::new(),
+        banned: RoaringBitmap::new(),
+        errated: RoaringBitmap::new(),
+        suspended: RoaringBitmap::new(),
         name_search_index,
         family_lookup_index,
         family_span_groups,
@@ -292,6 +297,7 @@ fn family_entry(
             name: source_set.to_string(),
             code: None,
         },
+        card_family_id: None,
     }
 }
 
@@ -358,6 +364,10 @@ pub(crate) fn test_state_with_sets() -> AppState {
         stats: BTreeMap::new(),
         factions: BTreeMap::new(),
         set_bitmaps,
+        subtype_bitmaps: BTreeMap::new(),
+        banned: RoaringBitmap::new(),
+        errated: RoaringBitmap::new(),
+        suspended: RoaringBitmap::new(),
         name_search_index,
         family_lookup_index,
         family_span_groups,

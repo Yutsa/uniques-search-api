@@ -1,9 +1,12 @@
+use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
+
+use index_core::family_catalog::FamilyCatalogEntry;
 
 use crate::collections::CollectionStore;
 use crate::config::{CollectionsSettings, Settings};
 use crate::formats::FormatIndex;
-use crate::index::UniquesIndex;
+use crate::index::{NonUniqueQueryIndex, UniquesIndex};
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -14,6 +17,12 @@ pub struct ServerState {
 #[derive(Clone)]
 pub struct QuerySnapshot {
     pub index: Arc<UniquesIndex>,
+    /// `None` when this index root has no `nonunique/` files yet (see Lot 2 / plan 19) — every
+    /// index built before that lot still loads fine, just without `/api/v2/search` results.
+    pub nonunique: Option<Arc<NonUniqueQueryIndex>>,
+    /// Shared family name/type/subtypes, by `CardFamilyId` — empty when `families.json` is absent
+    /// (see Lot 5 / plan 23).
+    pub families: Arc<BTreeMap<i64, FamilyCatalogEntry>>,
     pub formats: Arc<FormatIndex>,
     pub collections: CollectionStore,
 }
@@ -41,6 +50,8 @@ impl AppState {
     ) -> Self {
         Self::new(QuerySnapshot {
             index: Arc::new(index),
+            nonunique: None,
+            families: Arc::new(BTreeMap::new()),
             formats: Arc::new(FormatIndex::empty()),
             collections: CollectionStore::new(collections_settings),
         })
@@ -83,6 +94,10 @@ impl AppState {
         if new_secs > old_secs {
             self.commit(Arc::new(QuerySnapshot {
                 index: new_index,
+                // Non-unique hot-reload isn't wired yet (Lot 2 first slice); carry the current
+                // value forward unchanged rather than dropping it on every unique-index reload.
+                nonunique: current.nonunique.clone(),
+                families: current.families.clone(),
                 formats: new_formats,
                 collections: CollectionStore::new(collections_settings),
             }));
@@ -127,6 +142,7 @@ impl ServerState {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -203,6 +219,10 @@ mod tests {
                 by_set: Default::default(),
                 core_and_coreks: None,
             },
+            subtype_bitmaps: Default::default(),
+            banned: Default::default(),
+            errated: Default::default(),
+            suspended: Default::default(),
             name_search_index: build_name_search_index(&catalog),
             family_lookup_index: build_family_lookup_index(&catalog),
             family_span_groups: vec![],
@@ -213,6 +233,8 @@ mod tests {
     fn snapshot_with_index(built_at_secs: u64) -> QuerySnapshot {
         QuerySnapshot {
             index: Arc::new(minimal_index(built_at_secs)),
+            nonunique: None,
+            families: Arc::new(BTreeMap::new()),
             formats: Arc::new(FormatIndex::empty()),
             collections: CollectionStore::new(&test_collections_settings()),
         }
@@ -258,12 +280,17 @@ mod tests {
     fn commit_if_newer_discards_collections() {
         use roaring::RoaringBitmap;
 
+        use crate::collections::CollectionBitmaps;
+
         let settings = test_collections_settings();
         let state = AppState::new(snapshot_with_index(10));
-        state
-            .snapshot()
-            .collections
-            .insert("deck", Arc::new(RoaringBitmap::from_iter([1])));
+        state.snapshot().collections.insert(
+            "deck",
+            Arc::new(CollectionBitmaps {
+                unique: RoaringBitmap::from_iter([1]),
+                nonunique: RoaringBitmap::new(),
+            }),
+        );
         assert!(state.snapshot().collections.contains("deck"));
 
         state

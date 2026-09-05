@@ -36,6 +36,14 @@ pub struct UniquesIndex {
     pub stats: BTreeMap<StatField, [RoaringBitmap; 16]>,
     pub factions: BTreeMap<Faction, RoaringBitmap>,
     pub set_bitmaps: SetBitmaps,
+    /// Derived at load time from `catalog.json`'s per-family `card_sub_types` (no separate
+    /// bitmap files on disk) — a print can belong to more than one subtype.
+    pub subtype_bitmaps: BTreeMap<String, RoaringBitmap>,
+    /// `status/{banned,errated,suspended}.roar` — absent (empty) for an index built before this
+    /// was added, or for a set with none of a given flag.
+    pub banned: RoaringBitmap,
+    pub errated: RoaringBitmap,
+    pub suspended: RoaringBitmap,
     pub name_search_index: NameSearchIndex,
     pub family_lookup_index: FamilyLookupIndex,
     pub family_span_groups: Vec<FamilySpanGroup>,
@@ -108,6 +116,22 @@ impl UniquesIndex {
 
     pub fn set_bitmaps(&self) -> &SetBitmaps {
         &self.set_bitmaps
+    }
+
+    pub fn subtype_bitmaps(&self) -> &BTreeMap<String, RoaringBitmap> {
+        &self.subtype_bitmaps
+    }
+
+    pub fn banned(&self) -> &RoaringBitmap {
+        &self.banned
+    }
+
+    pub fn errated(&self) -> &RoaringBitmap {
+        &self.errated
+    }
+
+    pub fn suspended(&self) -> &RoaringBitmap {
+        &self.suspended
     }
 
     pub fn name_search_index(&self) -> &NameSearchIndex {
