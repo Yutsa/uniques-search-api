@@ -111,6 +111,10 @@ pub(crate) fn build_bitmap(
         ));
     }
 
+    if !req.collector_numbers.is_empty() {
+        groups.push(collector_number_bitmap(state, &req.collector_numbers));
+    }
+
     if let Some(pred) = &req.main_cost {
         groups.push(bitmap_for_cost_predicate(state, StatField::MainCost, "mainCost", pred)?);
     }
@@ -151,6 +155,10 @@ pub(crate) fn build_bitmap(
         groups.push(state.name_search_index().bitmap_for_contains(state.catalog(), name));
     }
 
+    if let Some(q) = &req.q {
+        groups.push(unified_search_bitmap(state, q));
+    }
+
     let mut format_exclude: Option<RoaringBitmap> = None;
     if let Some(id) = &req.format {
         if let Some(loaded) = format_index.get(id) {
@@ -186,6 +194,27 @@ pub(crate) fn build_bitmap(
         out -= exclude;
     }
     Ok(out)
+}
+
+/// Exact-match, lenient like `ref[]`: unresolved values just don't set a bit. Uniques only.
+fn collector_number_bitmap(state: &UniquesIndex, collector_numbers: &[String]) -> RoaringBitmap {
+    let mut out = RoaringBitmap::new();
+    for cn in collector_numbers {
+        if let Ok(card_index) = state.resolve_card_index_by_collector_number(cn) {
+            out.insert(card_index);
+        }
+    }
+    out
+}
+
+/// `q`'s single OR'd group: name substring, exact reference, exact collector number.
+fn unified_search_bitmap(state: &UniquesIndex, q: &str) -> RoaringBitmap {
+    let mut out = state.name_search_index().bitmap_for_contains(state.catalog(), q);
+    out |= index_core::build_bitmap_from_ref_strs_lenient(state.catalog(), &[q]);
+    if let Ok(card_index) = state.resolve_card_index_by_collector_number(q) {
+        out.insert(card_index);
+    }
+    out
 }
 
 fn all_cards_bitmap(state: &UniquesIndex) -> RoaringBitmap {
@@ -393,8 +422,18 @@ pub(crate) fn card_v2_from_index(
         },
         main_effect: build_main_effect_localized(idgd_by_id, &view),
         echo_effect: build_echo_effect_localized(idgd_by_id, &view),
+        collector_number: build_collector_number(family, card_index),
         debug_bga_trigram: debug_bga_trigram.then(|| build_debug_bga_trigram(&view)),
     })
+}
+
+/// `SET-FAMILY-U-UID` (e.g. `BTG-011-U-5`) — `None` if either `set.code` or
+/// `collector_family_number` is missing (older index, or the deferred `cardsdata.rs` path).
+fn build_collector_number(family: &index_core::catalog::FamilyEntry, card_index: u32) -> Option<String> {
+    let code = family.set.code.as_deref()?;
+    let family_collector_number = family.collector_family_number.as_deref()?;
+    let unique_id = card_index - family.start_bit + 1;
+    Some(format!("{code}-{family_collector_number}-U-{unique_id}"))
 }
 
 fn first_match_in_range(bitmap: &RoaringBitmap, start: u32, end: u32) -> Option<u32> {
@@ -1346,6 +1385,90 @@ mod tests {
         let params: QueryMultiMap = HashMap::new();
         let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
         assert!(req.refs.is_empty());
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), state.index().manifest().total_bit_span as u64);
+    }
+
+    #[test]
+    fn collector_number_filter_matches_and_ignores_unknown() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "collectorNumber".to_string(),
+            // BTG-011-U-3 -> unique_id 3 -> card_index 2 (fixture family: start_bit 0, set code BTG,
+            // collector_family_number "011"); BTG-011-U-99 falls beyond max_unique_id (padding);
+            // "not-a-collector-number" doesn't parse.
+            vec!["BTG-011-U-3,BTG-011-U-99,not-a-collector-number".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 1);
+        assert!(bmp.contains(2));
+    }
+
+    #[test]
+    fn collector_number_field_round_trips_on_card_v2() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("ref".to_string(), vec!["ALT_TEST_B_AX_01_U_3".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        let (page, _) = page_cards_v2(state.index().as_ref(), &bmp, None, None, 1, false).unwrap();
+        assert_eq!(page[0].collector_number.as_deref(), Some("BTG-011-U-3"));
+    }
+
+    #[test]
+    fn q_matches_via_name_substring_only() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("q".to_string(), vec!["test card".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 10, "matches the whole family by name substring");
+    }
+
+    #[test]
+    fn q_matches_via_exact_reference_only() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("q".to_string(), vec!["ALT_TEST_B_AX_01_U_3".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 1);
+        assert!(bmp.contains(2));
+    }
+
+    #[test]
+    fn q_matches_via_exact_collector_number_only() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("q".to_string(), vec!["BTG-011-U-6".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 1);
+        assert!(bmp.contains(5));
+    }
+
+    #[test]
+    fn q_combines_with_other_filters_via_and() {
+        let state = test_state();
+        // "test card" alone matches all 10 (name substring); AND'd with recallCost==3 (only
+        // card_index 5 in the fixture) narrows to just that one card.
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("q".to_string(), vec!["test card".to_string()]);
+        params.insert("recallCost".to_string(), vec!["3".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
+        assert_eq!(bmp.len(), 1);
+        assert!(bmp.contains(5));
+    }
+
+    #[test]
+    fn q_absent_does_not_restrict_results() {
+        let state = test_state();
+        let params: QueryMultiMap = HashMap::new();
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert!(req.q.is_none());
         let bmp = build_bitmap(state.index().as_ref(), state.formats().as_ref(), &state.snapshot().collections, &req).unwrap();
         assert_eq!(bmp.len(), state.index().manifest().total_bit_span as u64);
     }

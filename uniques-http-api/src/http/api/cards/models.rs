@@ -65,6 +65,11 @@ pub struct CardV2 {
     pub faction: CardFaction,
     pub main_effect: BTreeMap<String, String>,
     pub echo_effect: BTreeMap<String, String>,
+    /// `SET-FAMILY-U-UID` (e.g. `BTG-011-U-5`) — `None` when the family lacks either `set.code` or
+    /// `collector_family_number` (older index, or a family from the deferred `cardsdata.rs` path).
+    /// Uniques only — see `cli-indexer/plans/24-collector-number-ingestion.md`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collector_number: Option<String>,
     #[serde(rename = "debug_bga_trigram", skip_serializing_if = "Option::is_none")]
     pub debug_bga_trigram: Option<String>,
 }
@@ -174,12 +179,16 @@ pub struct CardsRequest {
     pub factions: Vec<Faction>,
     pub sets: Vec<String>,
     pub refs: Vec<String>,
+    pub collector_numbers: Vec<String>,
     pub main_cost: Option<CostPredicate>,
     pub recall_cost: Option<CostPredicate>,
     pub forest_power: Option<CostPredicate>,
     pub mountain_power: Option<CostPredicate>,
     pub ocean_power: Option<CostPredicate>,
     pub name: Option<String>,
+    /// Unified search box: OR across name substring, exact reference, exact collector number.
+    /// Independent of `name`/`refs`/`collector_numbers`, which keep their own AND semantics.
+    pub q: Option<String>,
     pub debug_bga_trigram: bool,
     pub with_families: bool,
     pub format: Option<String>,

@@ -162,6 +162,7 @@ pub(crate) fn parse_request(
     let factions = parse_factions(params)?;
     let sets = parse_sets(params)?;
     let refs = parse_refs(params);
+    let collector_numbers = parse_collector_numbers(params);
     for code in &sets {
         if !state.set_bitmaps().by_set.contains_key(code) {
             return Err(bad_request(format!("invalid set value '{code}'")));
@@ -173,6 +174,7 @@ pub(crate) fn parse_request(
     let mountain_power = parse_cost_predicate(params, "mountainPower")?;
     let ocean_power = parse_cost_predicate(params, "oceanPower")?;
     let name = parse_name(params);
+    let q = parse_q(params);
     let debug_bga_trigram = params.contains_key("debug_bga_trigram");
     let with_families = params.contains_key("withFamilies");
 
@@ -189,12 +191,14 @@ pub(crate) fn parse_request(
         factions,
         sets,
         refs,
+        collector_numbers,
         main_cost,
         recall_cost,
         forest_power,
         mountain_power,
         ocean_power,
         name,
+        q,
         debug_bga_trigram,
         with_families,
         format,
@@ -210,6 +214,52 @@ fn parse_name(params: &QueryMultiMap) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+/// Unified search box term: OR across name substring / exact ref / exact collector number. Same
+/// trim/empty rule as `parse_name`.
+fn parse_q(params: &QueryMultiMap) -> Option<String> {
+    let raw = get_first(params, "q")?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn parse_collector_numbers(params: &QueryMultiMap) -> Vec<String> {
+    // Spec: collectorNumber[] repeated keys
+    // Convenience: collectorNumber=A,B,C (CSV)
+    let mut values: Vec<String> = Vec::new();
+    if let Some(vs) = params.get("collectorNumber[]") {
+        for v in vs {
+            for part in v.split(',') {
+                let s = part.trim();
+                if !s.is_empty() {
+                    values.push(s.to_string());
+                }
+            }
+        }
+    }
+    if let Some(vs) = params.get("collectorNumber") {
+        for v in vs {
+            for part in v.split(',') {
+                let s = part.trim();
+                if !s.is_empty() {
+                    values.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for value in values {
+        if !out.contains(&value) {
+            out.push(value);
+        }
+    }
+    out
 }
 
 fn parse_id_list(params: &QueryMultiMap, key: &str) -> ApiResult<Vec<u32>> {
@@ -730,6 +780,61 @@ mod tests {
         let params: QueryMultiMap = HashMap::new();
         let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
         assert!(req.refs.is_empty());
+    }
+
+    #[test]
+    fn parses_collector_numbers_from_repeated_or_csv_alias() {
+        let state = test_state();
+
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "collectorNumber[]".to_string(),
+            vec!["BTG-011-U-3".to_string(), "BTG-011-U-6".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert_eq!(req.collector_numbers, vec!["BTG-011-U-3", "BTG-011-U-6"]);
+
+        let mut params2: QueryMultiMap = HashMap::new();
+        params2.insert(
+            "collectorNumber".to_string(),
+            vec!["BTG-011-U-3,BTG-011-U-6".to_string()],
+        );
+        let req2 = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params2).unwrap();
+        assert_eq!(req2.collector_numbers, vec!["BTG-011-U-3", "BTG-011-U-6"]);
+    }
+
+    #[test]
+    fn collector_numbers_dedup_and_ignore_blank_entries() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert(
+            "collectorNumber".to_string(),
+            vec!["BTG-011-U-3, ,BTG-011-U-3".to_string()],
+        );
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert_eq!(req.collector_numbers, vec!["BTG-011-U-3".to_string()]);
+    }
+
+    #[test]
+    fn no_collector_number_param_yields_empty() {
+        let state = test_state();
+        let params: QueryMultiMap = HashMap::new();
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert!(req.collector_numbers.is_empty());
+    }
+
+    #[test]
+    fn q_trims_and_treats_whitespace_as_absent() {
+        let state = test_state();
+        let mut params: QueryMultiMap = HashMap::new();
+        params.insert("q".to_string(), vec!["  Kelon  ".to_string()]);
+        let req = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &params).unwrap();
+        assert_eq!(req.q.as_deref(), Some("Kelon"));
+
+        let mut blank: QueryMultiMap = HashMap::new();
+        blank.insert("q".to_string(), vec!["   ".to_string()]);
+        let req_blank = parse_request(state.index().as_ref(), state.formats().as_ref(), false, &state.snapshot().collections, &blank).unwrap();
+        assert!(req_blank.q.is_none());
     }
     #[test]
     fn cost_exact_array_range_parsing_and_mixing_rejected() {

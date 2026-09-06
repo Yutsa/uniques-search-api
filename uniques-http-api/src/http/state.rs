@@ -112,7 +112,7 @@ impl ServerState {
     /// Wrap loaded app state with minimal settings for integration tests (formats disabled).
     pub fn for_test(app: AppState) -> Self {
         use crate::config::{
-            CollectionsSettings, HttpIndexSettings, IndexSettings, IndexSourceKind,
+            CardsSettings, CollectionsSettings, HttpIndexSettings, IndexSettings, IndexSourceKind,
             ObjectStoreSettings, ReloadSettings, ServerSettings, Settings,
         };
 
@@ -135,6 +135,7 @@ impl ServerState {
                     max_memory_bytes: 1024 * 1024,
                     ..CollectionsSettings::default()
                 },
+                cards: CardsSettings::default(),
             }),
         }
     }
@@ -156,8 +157,8 @@ mod tests {
     use crate::config::CollectionsSettings;
     use crate::formats::FormatIndex;
     use crate::index::loader::{
-        build_family_lookup_index, build_name_search_index, FactionsSummary, IndexManifest,
-        StatsSummary,
+        build_collector_number_lookup_index, build_family_lookup_index, build_name_search_index,
+        FactionsSummary, IndexManifest, StatsSummary,
     };
     use crate::index::UniquesIndex;
 
@@ -226,6 +227,7 @@ mod tests {
             name_search_index: build_name_search_index(&catalog),
             family_lookup_index: build_family_lookup_index(&catalog),
             family_span_groups: vec![],
+            collector_number_lookup_index: build_collector_number_lookup_index(&catalog),
             effects_body: Arc::new(Bytes::from_static(b"[]")),
         }
     }

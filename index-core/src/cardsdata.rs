@@ -280,6 +280,9 @@ impl CardsDataSet {
             is_errated: print.is_errated != 0,
             is_suspended: print.is_suspended != 0,
             card_family_id: Some(print.card_family_id),
+            // Deferred: CardsData's collector-number source column isn't confirmed yet (CardsData
+            // isn't vendored in this repo). See cli-indexer/plans/24-collector-number-ingestion.md.
+            collector_number_formatted: None,
         })
     }
 

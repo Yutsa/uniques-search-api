@@ -103,8 +103,9 @@ mod tests {
     use index_core::idgd_collapse::IdGdAliasMap;
 
     use crate::index::loader::{
-        build_family_lookup_index, build_family_span_groups, build_name_search_index,
-        build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary, SET_CORE, SET_COREKS,
+        build_collector_number_lookup_index, build_family_lookup_index, build_family_span_groups,
+        build_name_search_index, build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary,
+        SET_CORE, SET_COREKS,
     };
     use crate::index::UniquesIndex;
 
@@ -133,6 +134,7 @@ mod tests {
                         code: None,
                     },
                     card_family_id: None,
+                    collector_family_number: None,
                 },
                 FamilyEntry {
                     start_bit: 5,
@@ -152,6 +154,7 @@ mod tests {
                         code: None,
                     },
                     card_family_id: None,
+                    collector_family_number: None,
                 },
             ],
             total_bit_span: 8,
@@ -203,6 +206,7 @@ mod tests {
             name_search_index: build_name_search_index(&catalog),
             family_lookup_index: build_family_lookup_index(&catalog),
             family_span_groups: build_family_span_groups(&catalog),
+            collector_number_lookup_index: build_collector_number_lookup_index(&catalog),
             effects_body: Arc::new(Bytes::from_static(b"[]")),
         }
     }

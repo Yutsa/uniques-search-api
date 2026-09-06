@@ -11,6 +11,8 @@ pub struct Settings {
     pub formats: Option<FormatsSettings>,
     #[serde(default)]
     pub collections: CollectionsSettings,
+    #[serde(default)]
+    pub cards: CardsSettings,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -31,6 +33,22 @@ impl Default for CollectionsSettings {
             max_memory_bytes: 32 * 1024 * 1024,
             time_to_live_secs: 0,
             time_to_idle_secs: 0,
+            max_post_payload_bytes: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CardsSettings {
+    /// Max POST body size for `POST /api/v2/cards` (same params as `GET`, carried in the body);
+    /// `0` keeps Axum's default (2 MiB). See `uniques-http-api/plans/25-post-cards-endpoint.md`.
+    #[serde(default)]
+    pub max_post_payload_bytes: u64,
+}
+
+impl Default for CardsSettings {
+    fn default() -> Self {
+        Self {
             max_post_payload_bytes: 0,
         }
     }
@@ -244,6 +262,7 @@ fn validate_settings(settings: &Settings) -> Result<()> {
         }
     }
     validate_collections(&settings.collections)?;
+    validate_cards(&settings.cards)?;
     Ok(())
 }
 
@@ -261,6 +280,13 @@ fn validate_collections(collections: &CollectionsSettings) -> Result<()> {
     }
     if collections.max_post_payload_bytes > usize::MAX as u64 {
         bail!("collections.max_post_payload_bytes exceeds platform usize::MAX");
+    }
+    Ok(())
+}
+
+fn validate_cards(cards: &CardsSettings) -> Result<()> {
+    if cards.max_post_payload_bytes > usize::MAX as u64 {
+        bail!("cards.max_post_payload_bytes exceeds platform usize::MAX");
     }
     Ok(())
 }

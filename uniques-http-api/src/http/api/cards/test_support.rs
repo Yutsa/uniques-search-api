@@ -16,8 +16,9 @@ use roaring::RoaringBitmap;
 use crate::http::state::AppState;
 use crate::index::UniquesIndex;
 use crate::index::loader::{
-    build_family_lookup_index, build_family_span_groups, build_name_search_index,
-    build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary, SET_CORE, SET_COREKS,
+    build_collector_number_lookup_index, build_family_lookup_index, build_family_span_groups,
+    build_name_search_index, build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary,
+    SET_CORE, SET_COREKS,
 };
 
 pub(crate) fn test_state() -> AppState {
@@ -48,6 +49,7 @@ pub(crate) fn test_state() -> AppState {
                 code: Some("BTG".to_string()),
             },
             card_family_id: Some(1),
+            collector_family_number: Some("011".to_string()),
         }],
         total_bit_span: 10,
     };
@@ -210,6 +212,7 @@ pub(crate) fn test_state() -> AppState {
     let name_search_index = build_name_search_index(&catalog);
     let family_lookup_index = build_family_lookup_index(&catalog);
     let family_span_groups = build_family_span_groups(&catalog);
+    let collector_number_lookup_index = build_collector_number_lookup_index(&catalog);
 
     let id_gd_aliases = IdGdAliasMap::from_catalog(&idgd_catalog);
 
@@ -269,6 +272,7 @@ pub(crate) fn test_state() -> AppState {
         name_search_index,
         family_lookup_index,
         family_span_groups,
+        collector_number_lookup_index,
     };
 
     AppState::new_with_index(index)
@@ -298,6 +302,7 @@ fn family_entry(
             code: None,
         },
         card_family_id: None,
+        collector_family_number: None,
     }
 }
 
@@ -328,6 +333,7 @@ pub(crate) fn test_state_with_sets() -> AppState {
     let name_search_index = build_name_search_index(&catalog);
     let family_lookup_index = build_family_lookup_index(&catalog);
     let family_span_groups = build_family_span_groups(&catalog);
+    let collector_number_lookup_index = build_collector_number_lookup_index(&catalog);
     assert!(set_bitmaps.by_set.contains_key(SET_CORE));
     assert!(set_bitmaps.by_set.contains_key(SET_COREKS));
     assert!(set_bitmaps.by_set.contains_key("ALIZE"));
@@ -371,6 +377,7 @@ pub(crate) fn test_state_with_sets() -> AppState {
         name_search_index,
         family_lookup_index,
         family_span_groups,
+        collector_number_lookup_index,
     };
 
     AppState::new_with_index(index)

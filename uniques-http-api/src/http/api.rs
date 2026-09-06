@@ -7,12 +7,12 @@ pub mod search;
 
 use axum::Router;
 
-use crate::config::CollectionsSettings;
+use crate::config::{CardsSettings, CollectionsSettings};
 use crate::http::ServerState;
 
-pub fn router(collections: &CollectionsSettings) -> Router<ServerState> {
+pub fn router(collections: &CollectionsSettings, cards: &CardsSettings) -> Router<ServerState> {
     Router::new()
-        .merge(cards::router())
+        .merge(cards::router(cards))
         .merge(collections::router(collections))
         .merge(effects::router())
         .merge(family::router())

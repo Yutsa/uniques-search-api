@@ -260,8 +260,9 @@ mod tests {
 
     use crate::config::{FormatsSettings, FormatsSourceConfig};
     use crate::index::loader::{
-        build_family_lookup_index, build_family_span_groups, build_name_search_index,
-        build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary, SET_CORE,
+        build_collector_number_lookup_index, build_family_lookup_index, build_family_span_groups,
+        build_name_search_index, build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary,
+        SET_CORE,
     };
     use crate::index::UniquesIndex;
 
@@ -289,6 +290,7 @@ mod tests {
                     code: None,
                 },
                 card_family_id: None,
+                collector_family_number: None,
             }],
             total_bit_span: 2,
         };
@@ -339,6 +341,7 @@ mod tests {
             name_search_index: build_name_search_index(&catalog),
             family_lookup_index: build_family_lookup_index(&catalog),
             family_span_groups: build_family_span_groups(&catalog),
+            collector_number_lookup_index: build_collector_number_lookup_index(&catalog),
             effects_body: Arc::new(Bytes::from_static(b"[]")),
         }
     }

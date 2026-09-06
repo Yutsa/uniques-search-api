@@ -290,6 +290,72 @@ pub fn build_family_lookup_index(catalog: &Catalog) -> FamilyLookupIndex {
     FamilyLookupIndex { by_key }
 }
 
+/// Keyed on the collector number's own `SET-FAMILY` segments (e.g. `("BTG", "011")`), which use a
+/// **different** namespace than `FamilyKey`'s `(set reference, faction, family_number)` — the set
+/// segment is the display `code` (`BTG`), not the internal set reference (`COREKS`), and the family
+/// segment is `collector_family_number`, unrelated to `family_number`. See
+/// `cli-indexer/plans/24-collector-number-ingestion.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CollectorNumberKey {
+    pub set_code: String,
+    pub family_collector_number: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollectorNumberLookupIndex {
+    by_key: HashMap<CollectorNumberKey, FamilySpan>,
+}
+
+impl CollectorNumberLookupIndex {
+    pub fn len(&self) -> usize {
+        self.by_key.len()
+    }
+
+    pub fn resolve(
+        &self,
+        set_code: &str,
+        family_collector_number: &str,
+        unique_id: u32,
+    ) -> Result<u32, FamilyResolveError> {
+        let key = CollectorNumberKey {
+            set_code: set_code.to_string(),
+            family_collector_number: family_collector_number.to_string(),
+        };
+        let span = self.by_key.get(&key).ok_or(FamilyResolveError::NotFound)?;
+        if unique_id > span.max_unique_id {
+            return Err(FamilyResolveError::Padding);
+        }
+        Ok(span.start_bit + unique_id - 1)
+    }
+}
+
+/// Families missing either `set.code` or `collector_family_number` (older index, or the deferred
+/// `cardsdata.rs` path) are simply absent from this index — resolution for them falls through to
+/// `NotFound`, matching the `Option`-all-the-way-down tolerance the rest of this field uses.
+pub fn build_collector_number_lookup_index(catalog: &Catalog) -> CollectorNumberLookupIndex {
+    let mut by_key = HashMap::new();
+    for family in &catalog.families {
+        let (Some(set_code), Some(family_collector_number)) = (
+            family.set.code.as_deref(),
+            family.collector_family_number.as_deref(),
+        ) else {
+            continue;
+        };
+        let key = CollectorNumberKey {
+            set_code: set_code.to_string(),
+            family_collector_number: family_collector_number.to_string(),
+        };
+        by_key.insert(
+            key,
+            FamilySpan {
+                start_bit: family.start_bit,
+                max_unique_id: family.max_unique_id,
+            },
+        );
+    }
+    CollectorNumberLookupIndex { by_key }
+}
+
 pub fn build_name_search_index(catalog: &Catalog) -> NameSearchIndex {
     let by_family = catalog
         .families
@@ -450,6 +516,12 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         catalog.families.len()
     );
 
+    let collector_number_lookup_index = build_collector_number_lookup_index(&catalog);
+    eprintln!(
+        "  collector number lookup index: {} families",
+        collector_number_lookup_index.len()
+    );
+
     let id_gd_aliases = IdGdAliasMap::from_catalog(&idgd_catalog);
 
     let effects_list = build_effects_list(&idgd_catalog);
@@ -485,6 +557,7 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         name_search_index,
         family_lookup_index,
         family_span_groups,
+        collector_number_lookup_index,
         effects_body,
     })
 }
@@ -706,6 +779,7 @@ mod tests {
                 code: None,
             },
             card_family_id: None,
+            collector_family_number: None,
         }
     }
 

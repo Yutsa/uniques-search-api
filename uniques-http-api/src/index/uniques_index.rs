@@ -14,8 +14,8 @@ use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
 
 use super::loader::{
-    FamilyLookupIndex, FamilyResolveError, FamilySpanGroup, FactionsSummary, IndexManifest,
-    NameSearchIndex, SetBitmaps, StatsSummary,
+    CollectorNumberLookupIndex, FamilyLookupIndex, FamilyResolveError, FamilySpanGroup,
+    FactionsSummary, IndexManifest, NameSearchIndex, SetBitmaps, StatsSummary,
 };
 
 /// In-memory representation of a loaded index directory.
@@ -47,6 +47,8 @@ pub struct UniquesIndex {
     pub name_search_index: NameSearchIndex,
     pub family_lookup_index: FamilyLookupIndex,
     pub family_span_groups: Vec<FamilySpanGroup>,
+    /// Uniques only — see `cli-indexer/plans/24-collector-number-ingestion.md`.
+    pub collector_number_lookup_index: CollectorNumberLookupIndex,
     /// Pre-serialized `GET /api/v2/effects` JSON body.
     pub effects_body: Arc<Bytes>,
 }
@@ -146,6 +148,10 @@ impl UniquesIndex {
         &self.family_span_groups
     }
 
+    pub fn collector_number_lookup_index(&self) -> &CollectorNumberLookupIndex {
+        &self.collector_number_lookup_index
+    }
+
     pub fn effects_body(&self) -> &Arc<Bytes> {
         &self.effects_body
     }
@@ -176,6 +182,39 @@ impl UniquesIndex {
                             .max_unique_id(&parsed)
                             .unwrap_or(0)
                     ),
+                },
+            })
+    }
+
+    /// Resolves an exact `collectorNumberFormatted` string (`SET-FAMILY-U-UID`, e.g.
+    /// `BTG-011-U-5`) to a `card_index`. Uniques only — see
+    /// `cli-indexer/plans/24-collector-number-ingestion.md`.
+    pub fn resolve_card_index_by_collector_number(&self, s: &str) -> Result<u32, CardResolveError> {
+        let parts: Vec<&str> = s.split('-').collect();
+        let [set_code, family_collector_number, rarity, unique_id_str] = parts.as_slice() else {
+            return Err(CardResolveError::BadRequest {
+                message: format!("invalid collector number '{s}': expected SET-FAMILY-U-UID"),
+            });
+        };
+        if *rarity != "U" {
+            return Err(CardResolveError::BadRequest {
+                message: format!(
+                    "invalid collector number '{s}': expected 'U' rarity marker (uniques only)"
+                ),
+            });
+        }
+        let unique_id: u32 = unique_id_str.parse().map_err(|_| CardResolveError::BadRequest {
+            message: format!("invalid collector number '{s}': non-numeric unique id"),
+        })?;
+
+        self.collector_number_lookup_index
+            .resolve(set_code, family_collector_number, unique_id)
+            .map_err(|e| match e {
+                FamilyResolveError::NotFound => CardResolveError::NotFound {
+                    message: format!("collector number not found: {s}"),
+                },
+                FamilyResolveError::Padding => CardResolveError::NotFound {
+                    message: format!("collector number {s} falls in padding"),
                 },
             })
     }
