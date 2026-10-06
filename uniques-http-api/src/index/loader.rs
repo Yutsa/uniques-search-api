@@ -9,6 +9,7 @@ use index_core::catalog::Catalog;
 use index_core::compact::RECORD_SIZE;
 use index_core::faction_index::Faction;
 use index_core::idgd_catalog::IdGdCatalog;
+use index_core::keyword_catalog::{KeywordCatalog, KEYWORDS_FILE};
 use index_core::path::ParsedCardPath;
 use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
@@ -18,6 +19,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::collections::CollectionStore;
 use crate::config::Settings;
 use crate::formats::{load_format_index, FormatIndex};
+use crate::http::api::effect_text::CardTextParts;
 use crate::http::api::effects::{build_effects_list, serialize_effects_list};
 use crate::http::state::{AppState, QuerySnapshot};
 use crate::index::UniquesIndex;
@@ -408,7 +410,18 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
 
     let id_gd_aliases = IdGdAliasMap::from_catalog(&idgd_catalog);
 
-    let effects_list = build_effects_list(&idgd_catalog);
+    let keywords: KeywordCatalog = if storage.has_file(KEYWORDS_FILE) {
+        read_json(storage, KEYWORDS_FILE)?
+    } else {
+        KeywordCatalog::default()
+    };
+    eprintln!(
+        "  keywords: {} printed keyword names",
+        keywords.keywords.len()
+    );
+    let card_text_parts = CardTextParts::build(&idgd_catalog, &keywords);
+
+    let effects_list = build_effects_list(&idgd_catalog, &keywords);
     let effects_body = Arc::new(serialize_effects_list(&effects_list)?);
     eprintln!(
         "  effects list: {} triggers, {} conditions, {} outputs ({} bytes JSON)",
@@ -438,6 +451,7 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         family_lookup_index,
         family_span_groups,
         effects_body,
+        card_text_parts,
     })
 }
 

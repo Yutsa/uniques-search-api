@@ -16,6 +16,7 @@ use crate::http::api::cards::models::{
     CardFaction, CardSetV2, CardSubTypeV2, CardV2, CardsRequest, CompareOp, CostPredicate,
     EffectCombineMode, FamilyMatchV2,
 };
+use crate::http::api::effect_text::{CardTextParts, FormattedText, join_card_parts};
 
 fn union_requested_sets(bitmaps: &SetBitmaps, sets: &[String]) -> RoaringBitmap {
     let has_core = sets.iter().any(|s| s == SET_CORE);
@@ -369,6 +370,21 @@ pub(crate) fn card_v2_from_index(
         .unwrap_or("")
         .to_string();
 
+    let main_groups = [
+        view.main_effect_group(0),
+        view.main_effect_group(1),
+        view.main_effect_group(2),
+    ];
+    let main_effect = build_main_effect_localized(idgd_by_id, &view);
+    let echo_effect = build_echo_effect_localized(idgd_by_id, &view);
+    let main_effect_formatted =
+        build_effect_lines_formatted(&state.card_text_parts, &main_groups, main_effect.keys());
+    let echo_effect_formatted = build_effect_lines_formatted(
+        &state.card_text_parts,
+        &[view.echo_effect()],
+        echo_effect.keys(),
+    );
+
     Ok(CardV2 {
         reference,
         name: family.name.clone(),
@@ -391,8 +407,10 @@ pub(crate) fn card_v2_from_index(
             code: faction_code,
             name: faction_name,
         },
-        main_effect: build_main_effect_localized(idgd_by_id, &view),
-        echo_effect: build_echo_effect_localized(idgd_by_id, &view),
+        main_effect,
+        echo_effect,
+        main_effect_formatted,
+        echo_effect_formatted,
         debug_bga_trigram: debug_bga_trigram.then(|| build_debug_bga_trigram(&view)),
     })
 }
@@ -638,6 +656,32 @@ fn build_effect_line_localized(
     }
 }
 
+/// Formatted ability lines per locale, for the locales the raw effect text has.
+fn build_effect_lines_formatted<'a>(
+    parts: &CardTextParts,
+    groups: &[[u16; 3]],
+    locales: impl Iterator<Item = &'a String>,
+) -> BTreeMap<String, Vec<FormattedText>> {
+    let mut out = BTreeMap::new();
+    for locale in locales {
+        let lines: Vec<FormattedText> = groups
+            .iter()
+            .map(|ids| {
+                join_card_parts(
+                    ids.iter()
+                        .filter(|&&id| id != 0)
+                        .filter_map(|&id| parts.get(id as u32, locale)),
+                )
+            })
+            .filter(|line| !line.is_empty())
+            .collect();
+        if !lines.is_empty() {
+            out.insert(locale.clone(), lines);
+        }
+    }
+    out
+}
+
 fn pick_translation(map: &BTreeMap<String, index_core::card::LocaleText>, locale: &str) -> String {
     if let Some(t) = map.get(locale) {
         return t.text.clone();
@@ -656,6 +700,71 @@ mod tests {
     use crate::index::loader::{SET_CORE, SET_COREKS};
     use crate::http::api::cards::models::EffectCombineMode;
     use std::collections::HashMap;
+
+    #[test]
+    fn card_effect_lines_formatted_per_locale() {
+        use index_core::card::LocaleText;
+        use index_core::idgd_catalog::IdGdCatalog;
+        use index_core::keyword_catalog::KeywordCatalog;
+
+        use crate::http::api::effect_text::TextSegment;
+
+        let entry = |id_gd: u32, en: &str, fr: &str| IdGdCatalogEntry {
+            id_gd,
+            card_count: 1,
+            bitmap_bytes: 1,
+            bitmap_file: format!("{id_gd}.roar"),
+            element_type: String::new(),
+            translations: [("en_US", en), ("fr_FR", fr)]
+                .into_iter()
+                .map(|(locale, text)| {
+                    let text = LocaleText {
+                        locale: locale.to_string(),
+                        text: text.to_string(),
+                    };
+                    (locale.to_string(), text)
+                })
+                .collect(),
+            m1: None,
+            m2: None,
+            m3: None,
+            ec: None,
+            is_main: true,
+            is_echo: false,
+            duplicated_id_gd: Vec::new(),
+        };
+        let catalog = IdGdCatalog {
+            set: "TEST".to_string(),
+            entries: vec![
+                entry(24, "{J}", "{J}"),
+                entry(191, "[]", "[]"),
+                entry(70, "It gains [FLEETING].", "Il gagne [FLEETING]."),
+                entry(76, "Draw a card.", "Piochez une carte."),
+            ],
+        };
+        let mut keywords = KeywordCatalog::default();
+        keywords.insert("FLEETING", "en_US", "Fleeting");
+        keywords.insert("FLEETING", "fr_FR", "Fugace");
+        let parts = CardTextParts::build(&catalog, &keywords);
+
+        let locales = ["en_US".to_string(), "fr_FR".to_string()];
+        let groups = [[24, 191, 70], [0, 191, 76], [0, 0, 0]];
+        let formatted = build_effect_lines_formatted(&parts, &groups, locales.iter());
+
+        assert_eq!(
+            formatted["fr_FR"],
+            vec![
+                vec![
+                    TextSegment::plain("{J} Il gagne "),
+                    TextSegment::bold("Fugace"),
+                    TextSegment::plain("."),
+                ],
+                vec![TextSegment::plain("Piochez une carte.")],
+            ]
+        );
+        assert_eq!(formatted["en_US"][0][1], TextSegment::bold("Fleeting"));
+    }
+
     #[test]
     fn empty_name_treated_as_no_filter() {
         let state = test_state();

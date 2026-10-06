@@ -4,6 +4,8 @@ use serde::Serialize;
 
 use index_core::faction_index::Faction;
 
+use crate::http::api::effect_text::FormattedText;
+
 // --- Response bodies ---
 
 #[derive(Debug, Serialize)]
@@ -61,6 +63,10 @@ pub struct CardV2 {
     pub faction: CardFaction,
     pub main_effect: BTreeMap<String, String>,
     pub echo_effect: BTreeMap<String, String>,
+    /// Readable `mainEffect`, per locale: one segment list per ability line.
+    pub main_effect_formatted: BTreeMap<String, Vec<FormattedText>>,
+    /// Readable `echoEffect`, per locale: at most one line.
+    pub echo_effect_formatted: BTreeMap<String, Vec<FormattedText>>,
     #[serde(rename = "debug_bga_trigram", skip_serializing_if = "Option::is_none")]
     pub debug_bga_trigram: Option<String>,
 }

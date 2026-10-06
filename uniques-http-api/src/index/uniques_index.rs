@@ -13,6 +13,8 @@ use index_core::path::parse_card_reference;
 use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
 
+use crate::http::api::effect_text::CardTextParts;
+
 use super::loader::{
     FamilyLookupIndex, FamilyResolveError, FamilySpanGroup, FactionsSummary, IndexManifest,
     NameSearchIndex, SetBitmaps, StatsSummary,
@@ -41,6 +43,8 @@ pub struct UniquesIndex {
     pub family_span_groups: Vec<FamilySpanGroup>,
     /// Pre-serialized `GET /api/v2/effects` JSON body.
     pub effects_body: Arc<Bytes>,
+    /// Card-text formatting of each idGd, per locale (`mainEffectFormatted` / `echoEffectFormatted`).
+    pub card_text_parts: CardTextParts,
 }
 
 #[derive(Debug)]

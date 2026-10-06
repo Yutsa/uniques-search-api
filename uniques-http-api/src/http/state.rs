@@ -207,6 +207,7 @@ mod tests {
             family_lookup_index: build_family_lookup_index(&catalog),
             family_span_groups: vec![],
             effects_body: Arc::new(Bytes::from_static(b"[]")),
+            card_text_parts: Default::default(),
         }
     }
 
