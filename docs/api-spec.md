@@ -187,6 +187,19 @@ The response is a JSON object with `iter` (match totals and paging), and `cards`
         de_DE: "...",
         es_ES: "...",
         it_IT: "..."
+      },
+      mainEffectFormatted: {
+        fr_FR: [
+          [ { text: "{R} S'il y a au moins une carte dans vos Repères : Un Personnage ciblé en jeu ou en Réserve gagne 2 boosts." } ],
+          [ { text: "Lorsque je quitte la zone d'Expédition — Vous pouvez " }, { text: "Amplifier", bold: true }, { text: " une carte ciblée en jeu ou en Réserve." } ]
+        ],
+        ...
+      },
+      echoEffectFormatted: {
+        fr_FR: [
+          [ { text: "{D} : Payez {1} de moins pour la prochaine carte que vous jouez ce tour-ci." } ]
+        ],
+        ...
       }
     },
     {
@@ -196,6 +209,18 @@ The response is a JSON object with `iter` (match totals and paging), and `cards`
   ]
 }
 ```
+
+### Formatted effect texts
+
+`mainEffect` / `echoEffect` are the raw texts, unchanged. `mainEffectFormatted` /
+`echoEffectFormatted` are readable versions for display, keyed by the same locales:
+
+- one entry per ability line (`mainEffect` joins up to three lines with two spaces; `echoEffect`
+  has at most one), each line being a list of [text segments](#text-segments);
+- `[CODE]` keywords are replaced by their printed name in that locale, in a bold segment
+  (`[AUGMENT]` → **Amplifier** in `fr_FR`, **Augment** in `en_US`);
+- the empty part `[]` is removed and repeated spaces are collapsed;
+- symbols (`{J}`, `{D}`, `{1}`...) and non-breaking spaces are kept as printed on the card.
 
 ### With `withFamilies` (first page only)
 
@@ -277,7 +302,9 @@ GET /api/v2/card/ALT_COREKS_B_AX_05_U_161
   "oceanPower": 3,
   "faction": { "code": "AX", "name": "Axiom" },
   "mainEffect": { "en_US": "...", "fr_FR": "..." },
-  "echoEffect": { "en_US": "...", "fr_FR": "..." }
+  "echoEffect": { "en_US": "...", "fr_FR": "..." },
+  "mainEffectFormatted": { "en_US": [[{ "text": "..." }]], "fr_FR": [[{ "text": "..." }]] },
+  "echoEffectFormatted": { "en_US": [[{ "text": "..." }]], "fr_FR": [[{ "text": "..." }]] }
 }
 ```
 
@@ -285,7 +312,31 @@ GET /api/v2/card/ALT_COREKS_B_AX_05_U_161
 
 This endpoint takes no parameters.
 
-It returns a list of the Effect parts available for filtering.
+It returns a list of the Effect parts available for filtering. Each part has its raw `text` and a
+readable `formattedText` for the trigger / condition / output pickers, both keyed by locale. The
+body is built once when the index loads.
+
+`formattedText` is a list of [text segments](#text-segments) per locale, built from `text` as follows:
+
+| Raw `text` | `formattedText` (`fr_FR`) | `formattedText` (`en_US`) |
+| ---------- | ------------------------- | ------------------------- |
+| `[]` (condition) | `Sans condition` | `No condition` |
+| `[]` (trigger or output) | `[]` (no segments) | `[]` (no segments) |
+| `{H}` | `Joué depuis la Main` | `Played from Hand` |
+| `{R}` | `Joué depuis la Réserve` | `Played from Reserve` |
+| `{J}` | `Joué de partout` | `Played from anywhere` |
+| `{T}` | `Épuisez-moi` | `Exhaust me` |
+| `{D}` or `{D} :` | `Défaussez-moi de la Réserve` | `Discard me from Reserve` |
+| `{I} À Midi —` | `À Midi —` (leading `{I}` removed) | `At Noon —` |
+| `[RESUPPLY_LOW].` | **`Ravitailler`** `.` | **`Resupply`** `.` |
+| `Si j'ai au moins 1 boost :` | `Si j'ai au moins 1 boost` | `If I have at least 1 boost` |
+
+- Symbol labels exist in `de_DE`, `en_US`, `es_ES`, `fr_FR` and `it_IT`; other locales get English.
+- `[CODE]` keywords are printed from the index's `keywords.json` (see
+  [ALL_SETS index format](ALL_SETS-index-format.md#keywordsjson)). A code missing in a locale
+  falls back to its `en_US` name; a code missing from the file is left as written (`[CODE]`).
+- Non-breaking and repeated spaces become one space; trailing spaces and `:` are removed.
+  Symbols inside a sentence (`{J} Piochez une carte.`) are kept.
 
 ```
 {
@@ -298,6 +349,11 @@ It returns a list of the Effect parts available for filtering.
         de_DE: ...
         es_ES: ...
         it_IT: ...
+      },
+      formattedText: {
+        en_US: [{ text: "Played from Reserve" }],
+        fr_FR: [{ text: "Joué depuis la Réserve" }],
+        ...
       },
       isEcho: false,
       isMain: true,
@@ -349,6 +405,11 @@ It returns a list of the Effect parts available for filtering.
         es_ES: ...
         it_IT: ...
       },
+      formattedText: {
+        en_US: [{ text: "After You", bold: true }, { text: "." }],
+        fr_FR: [{ text: "Après vous", bold: true }, { text: "." }],
+        ...
+      },
       isEcho: false,
       isMain: true,
     },
@@ -356,6 +417,22 @@ It returns a list of the Effect parts available for filtering.
   ]
 }
 ```
+
+## Text segments
+
+Formatted texts are arrays of segments rather than Markdown or HTML, so clients render them
+without parsing or escaping:
+
+```json
+[{ "text": "Lancez un dé. Sur 4+, " }, { "text": "Ravitailler", "bold": true }, { "text": "." }]
+```
+
+| Field  | Type    | Description                                   |
+| ------ | ------- | --------------------------------------------- |
+| `text` | string  | Text to display as is.                        |
+| `bold` | boolean | `true` for keywords. Omitted when not bold.   |
+
+Concatenating the `text` fields gives the plain readable text.
 
 ## `GET /api/v2/effects/filtered`
 

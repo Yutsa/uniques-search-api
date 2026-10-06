@@ -72,6 +72,7 @@ ALL_SETS/
   manifest.json
   cards.bin
   idgd_catalog.json
+  keywords.json
   extra_catalog.json
   extra/
     <filter-id>.roar
@@ -494,6 +495,43 @@ struct LocaleText {
 fn load_idgd_catalog(path: &Path) -> anyhow::Result<IdGdCatalog> {
     let text = fs::read_to_string(path)?;
     Ok(serde_json::from_str(&text)?)
+}
+```
+
+---
+
+## `keywords.json`
+
+### Purpose
+
+Printed names of the keywords that effect texts reference as `[CODE]` (e.g. `[FLEETING]`), per
+locale. The HTTP API uses it to print keywords in bold in the formatted effect texts
+(`formattedText`, `mainEffectFormatted`, `echoEffectFormatted`).
+
+### Source
+
+`cli-indexer build` reads them from the card JSON, on each effect element:
+`cardEffectElementDisplays[].cardKeyword.reference` is the code, and
+`cardKeyword.translations[<locale>].displayWeb` is the printed name. Keywords with an empty
+`reference` (the `[]` empty part) are skipped. `cli-indexer merge` writes the union of the source
+files; for the same code and locale, the first set in `--sets` order wins.
+
+The file is optional: indexes built before it existed have none, and the API then leaves
+`[CODE]` as written in the formatted texts.
+
+### JSON schema
+
+```json
+{
+  "keywords": {
+    "FLEETING": {
+      "de_DE": "Vergänglich",
+      "en_US": "Fleeting",
+      "es_ES": "Fugacidad",
+      "fr_FR": "Fugace",
+      "it_IT": "Fugace"
+    }
+  }
 }
 ```
 
