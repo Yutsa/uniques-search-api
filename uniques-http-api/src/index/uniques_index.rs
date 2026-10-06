@@ -13,7 +13,7 @@ use index_core::path::parse_card_reference;
 use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
 
-use crate::http::api::effect_text::CardTextParts;
+use super::effect_lines::EffectLineTexts;
 
 use super::loader::{
     FamilyLookupIndex, FamilyResolveError, FamilySpanGroup, FactionsSummary, IndexManifest,
@@ -45,8 +45,8 @@ pub struct UniquesIndex {
     pub effects_body: Arc<Bytes>,
     /// `effects_body` gzipped once at load; `None` serves the plain body.
     pub effects_body_gzip: Option<Arc<Bytes>>,
-    /// Card-text formatting of each idGd, per locale (`mainEffectFormatted` / `echoEffectFormatted`).
-    pub card_text_parts: CardTextParts,
+    /// Raw and formatted texts of every distinct ability line (`mainEffect`, `mainEffectFormatted`...).
+    pub effect_lines: EffectLineTexts,
 }
 
 #[derive(Debug)]

@@ -208,7 +208,7 @@ mod tests {
             family_span_groups: vec![],
             effects_body: Arc::new(Bytes::from_static(b"[]")),
             effects_body_gzip: None,
-            card_text_parts: Default::default(),
+            effect_lines: Default::default(),
         }
     }
 

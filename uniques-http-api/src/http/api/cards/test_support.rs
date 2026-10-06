@@ -16,6 +16,7 @@ use roaring::RoaringBitmap;
 
 use crate::http::state::AppState;
 use crate::index::UniquesIndex;
+use crate::index::effect_lines::EffectLineTexts;
 use crate::index::loader::{
     build_family_lookup_index, build_family_span_groups, build_name_search_index,
     build_set_bitmaps, FactionsSummary, IndexManifest, StatsSummary, SET_CORE, SET_COREKS,
@@ -212,6 +213,7 @@ pub(crate) fn test_state() -> AppState {
     let family_span_groups = build_family_span_groups(&catalog);
 
     let id_gd_aliases = IdGdAliasMap::from_catalog(&idgd_catalog);
+    let effect_lines = EffectLineTexts::build(&idgd_catalog, &KeywordCatalog::default(), &cards);
 
     let index = UniquesIndex {
         index_dir: "C:\\tmp\\index".into(),
@@ -266,7 +268,7 @@ pub(crate) fn test_state() -> AppState {
         family_lookup_index,
         family_span_groups,
         effects_body_gzip: None,
-        card_text_parts: Default::default(),
+        effect_lines,
     };
 
     AppState::new_with_index(index)
@@ -365,7 +367,7 @@ pub(crate) fn test_state_with_sets() -> AppState {
         family_lookup_index,
         family_span_groups,
         effects_body_gzip: None,
-        card_text_parts: Default::default(),
+        effect_lines: Default::default(),
     };
 
     AppState::new_with_index(index)
