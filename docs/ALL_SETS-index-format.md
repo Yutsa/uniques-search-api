@@ -517,7 +517,14 @@ locale. The HTTP API uses it to print keywords in bold in the formatted effect t
 files; for the same code and locale, the first set in `--sets` order wins.
 
 The file is optional: indexes built before it existed have none, and the API then leaves
-`[CODE]` as written in the formatted texts.
+`[CODE]` as written in the formatted texts. When it loads an index, the API logs the codes used
+in effect texts that have no name in `keywords.json` (`warning: keyword codes without a printed
+name ...`) and those printed in English for some locales, so a rebuilt index can be checked from
+the startup log.
+
+Names are taken as Equinox wrote them, e.g. `RESUPPLY_LOW` → `Ravitaillez` / `Resupply` /
+`reabastece` (lowercase in Spanish), and `SCOUT_1` → `Scout` without the number (cards print the
+cost as the `{1}` that follows: `[SCOUT_1] {1}`).
 
 ### JSON schema
 

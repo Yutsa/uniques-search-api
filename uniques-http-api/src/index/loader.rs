@@ -19,7 +19,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::collections::CollectionStore;
 use crate::config::Settings;
 use crate::formats::{load_format_index, FormatIndex};
-use crate::http::api::effect_text::CardTextParts;
+use crate::http::api::effect_text::{CardTextParts, unresolved_keywords};
 use crate::http::api::effects::{build_effects_list, gzip_effects_body, serialize_effects_list};
 use crate::http::state::{AppState, QuerySnapshot};
 use crate::index::UniquesIndex;
@@ -419,6 +419,17 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         "  keywords: {} printed keyword names",
         keywords.keywords.len()
     );
+    let unresolved = unresolved_keywords(&idgd_catalog, &keywords);
+    if !unresolved.unknown.is_empty() {
+        eprintln!(
+            "  warning: keyword codes without a printed name (left as [CODE]): {}",
+            unresolved.unknown.iter().cloned().collect::<Vec<_>>().join(", ")
+        );
+    }
+    for (code, locales) in &unresolved.english_fallback {
+        let locales = locales.iter().cloned().collect::<Vec<_>>().join(", ");
+        eprintln!("  warning: keyword {code} printed in English for {locales}");
+    }
     let card_text_parts = CardTextParts::build(&idgd_catalog, &keywords);
 
     let effects_list = build_effects_list(&idgd_catalog, &keywords);

@@ -178,7 +178,7 @@ fn merge_unions_keyword_catalogs_in_set_order() {
         &index_dir.path().join("ALIZE/keywords.json"),
         json!({ "keywords": {
             "FLEETING": { "en_US": "Ignored", "it_IT": "Fugace" },
-            "RESUPPLY_LOW": { "fr_FR": "Ravitailler" }
+            "RESUPPLY_LOW": { "fr_FR": "Ravitaillez" }
         } }),
     );
 
@@ -195,6 +195,6 @@ fn merge_unions_keyword_catalogs_in_set_order() {
     assert_eq!(merged.name("FLEETING", "en_US"), Some("Fleeting"));
     assert_eq!(merged.name("FLEETING", "fr_FR"), Some("Fugace"));
     assert_eq!(merged.name("FLEETING", "it_IT"), Some("Fugace"));
-    assert_eq!(merged.name("RESUPPLY_LOW", "fr_FR"), Some("Ravitailler"));
+    assert_eq!(merged.name("RESUPPLY_LOW", "fr_FR"), Some("Ravitaillez"));
 }
 

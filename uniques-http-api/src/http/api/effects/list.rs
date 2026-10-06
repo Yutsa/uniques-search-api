@@ -158,7 +158,7 @@ mod tests {
         };
         let mut keywords = KeywordCatalog::default();
         keywords.insert("RESUPPLY_LOW", "en_US", "Resupply");
-        keywords.insert("RESUPPLY_LOW", "fr_FR", "Ravitailler");
+        keywords.insert("RESUPPLY_LOW", "fr_FR", "Ravitaillez");
 
         let body = serialize_effects_list(&build_effects_list(&catalog, &keywords)).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(output["text"]["fr_FR"], "[RESUPPLY_LOW].");
         assert_eq!(
             output["formattedText"]["fr_FR"],
-            serde_json::json!([{ "text": "Ravitailler", "bold": true }, { "text": "." }])
+            serde_json::json!([{ "text": "Ravitaillez", "bold": true }, { "text": "." }])
         );
         assert_eq!(
             output["formattedText"]["en_US"],

@@ -5,7 +5,7 @@
 //! index's `keywords.json`) and tidy spaces. Segments let clients render bold without parsing
 //! markup or injecting HTML.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use index_core::card::LocaleText;
 use index_core::idgd_catalog::IdGdCatalog;
@@ -98,7 +98,8 @@ impl Label {
 ///   "Played from anywhere", "Exhaust me"; `{D}` alone (with or without `:`) → "Discard me from
 ///   Reserve"; a leading `{I}` is dropped;
 /// - `[CODE]` keywords → bold printed name;
-/// - non-breaking and repeated spaces → one space, trailing spaces and `:` removed.
+/// - non-breaking and repeated spaces (also inside keyword names, e.g. `Tough\u{a0}1`) → one
+///   space, trailing spaces and `:` removed.
 pub fn format_effect_part(
     raw: &str,
     element_type: &str,
@@ -125,7 +126,18 @@ pub fn format_effect_part(
         return vec![TextSegment::plain(label.text(locale))];
     }
     let text = text.strip_prefix("{I}").unwrap_or(text);
-    tidy(keyword_segments(text, locale, keywords))
+    let segments = keyword_segments(text, locale, keywords)
+        .into_iter()
+        .map(|seg| TextSegment {
+            text: seg
+                .text
+                .chars()
+                .map(|c| if c.is_whitespace() { ' ' } else { c })
+                .collect(),
+            bold: seg.bold,
+        })
+        .collect();
+    tidy(segments)
 }
 
 /// Effect part as printed on a card (`mainEffectFormatted` / `echoEffectFormatted`): `[CODE]`
@@ -197,6 +209,50 @@ pub fn format_effect_part_translations(
         .collect()
 }
 
+/// Keyword codes used in the effect texts of `catalog` that `keywords` cannot print.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct UnresolvedKeywords {
+    /// Codes with no name in any locale: left as `[CODE]` in formatted texts.
+    pub unknown: BTreeSet<String>,
+    /// Codes printed with their `en_US` name in some locales, as `code -> locales`.
+    pub english_fallback: BTreeMap<String, BTreeSet<String>>,
+}
+
+pub fn unresolved_keywords(catalog: &IdGdCatalog, keywords: &KeywordCatalog) -> UnresolvedKeywords {
+    let mut out = UnresolvedKeywords::default();
+    for entry in &catalog.entries {
+        for (locale, t) in &entry.translations {
+            for code in bracket_codes(&t.text) {
+                if keywords.name(code, locale).is_some() {
+                    continue;
+                }
+                if keywords.name(code, FALLBACK_LOCALE).is_some() {
+                    out.english_fallback
+                        .entry(code.to_string())
+                        .or_default()
+                        .insert(locale.clone());
+                } else {
+                    out.unknown.insert(code.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Non-empty `[CODE]` keyword codes in `text`.
+fn bracket_codes(text: &str) -> impl Iterator<Item = &str> {
+    text.split('[').skip(1).filter_map(|rest| {
+        let code = &rest[..rest.find(']')?];
+        let is_code = !code.is_empty() && code.chars().all(is_code_char);
+        is_code.then_some(code)
+    })
+}
+
+fn is_code_char(c: char) -> bool {
+    c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
+}
+
 /// Split `text` on `[CODE]` keyword codes. Known codes become bold printed names, `[]` is dropped,
 /// unknown codes are left as written.
 fn keyword_segments(text: &str, locale: &str, keywords: &KeywordCatalog) -> FormattedText {
@@ -205,10 +261,10 @@ fn keyword_segments(text: &str, locale: &str, keywords: &KeywordCatalog) -> Form
     let mut rest = text;
     while let Some(start) = rest.find('[') {
         let after = &rest[start + 1..];
-        let code = after.find(']').map(|end| &after[..end]).filter(|code| {
-            code.chars()
-                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-        });
+        let code = after
+            .find(']')
+            .map(|end| &after[..end])
+            .filter(|code| code.chars().all(is_code_char));
         let Some(code) = code else {
             plain.push_str(&rest[..=start]);
             rest = after;
@@ -289,14 +345,16 @@ mod tests {
 
     const LOCALES: [&str; 5] = ["de_DE", "en_US", "es_ES", "fr_FR", "it_IT"];
 
+    /// Printed names as found in the card data (`cardKeyword.translations[locale].displayWeb`).
     fn keywords() -> KeywordCatalog {
         let mut k = KeywordCatalog::default();
+        k.insert("TOUGH_1", "en_US", "Tough\u{a0}1");
         for (locale, resupply, fleeting) in [
             ("de_DE", "Nachschub", "Vergänglich"),
             ("en_US", "Resupply", "Fleeting"),
-            ("es_ES", "Reabastecer", "Fugacidad"),
-            ("fr_FR", "Ravitailler", "Fugace"),
-            ("it_IT", "Rifornire", "Fugace"),
+            ("es_ES", "reabastece", "Fugacidad"),
+            ("fr_FR", "Ravitaillez", "Fugace"),
+            ("it_IT", "Rifornisci", "Fugace"),
         ] {
             k.insert("RESUPPLY_LOW", locale, resupply);
             k.insert("FLEETING", locale, fleeting);
@@ -390,9 +448,9 @@ mod tests {
         let names = [
             ("de_DE", "Nachschub"),
             ("en_US", "Resupply"),
-            ("es_ES", "Reabastecer"),
-            ("fr_FR", "Ravitailler"),
-            ("it_IT", "Rifornire"),
+            ("es_ES", "reabastece"),
+            ("fr_FR", "Ravitaillez"),
+            ("it_IT", "Rifornisci"),
         ];
         for (locale, name) in names {
             assert_eq!(
@@ -470,6 +528,70 @@ mod tests {
                 "{locale}"
             );
         }
+    }
+
+    #[test]
+    fn non_breaking_space_inside_keyword_name_is_normalized_in_pickers_only() {
+        assert_eq!(
+            picker("I am [TOUGH_1].", "OUTPUT", "en_US"),
+            vec![
+                TextSegment::plain("I am "),
+                TextSegment::bold("Tough 1"),
+                TextSegment::plain("."),
+            ]
+        );
+        assert_eq!(
+            format_card_part("I am [TOUGH_1].", "en_US", &keywords())[1],
+            TextSegment::bold("Tough\u{a0}1")
+        );
+    }
+
+    #[test]
+    fn unresolved_keywords_lists_unknown_codes_and_english_fallbacks() {
+        let entry =
+            |id_gd: u32, texts: &[(&str, &str)]| index_core::idgd_catalog::IdGdCatalogEntry {
+                id_gd,
+                card_count: 1,
+                bitmap_bytes: 1,
+                bitmap_file: String::new(),
+                element_type: "OUTPUT".to_string(),
+                translations: texts
+                    .iter()
+                    .map(|(locale, text)| {
+                        let t = LocaleText {
+                            locale: locale.to_string(),
+                            text: text.to_string(),
+                        };
+                        (locale.to_string(), t)
+                    })
+                    .collect(),
+                m1: None,
+                m2: None,
+                m3: None,
+                ec: None,
+                is_main: true,
+                is_echo: false,
+                duplicated_id_gd: Vec::new(),
+            };
+        let catalog = IdGdCatalog {
+            set: "TEST".to_string(),
+            entries: vec![
+                entry(
+                    1,
+                    &[("en_US", "[] [FLEETING] [TOUGH_1]"), ("fr_FR", "[TOUGH_1]")],
+                ),
+                entry(2, &[("en_US", "[SABOTAGE_LOW] and [b]")]),
+            ],
+        };
+        let unresolved = unresolved_keywords(&catalog, &keywords());
+        assert_eq!(
+            unresolved.unknown,
+            BTreeSet::from(["SABOTAGE_LOW".to_string()])
+        );
+        assert_eq!(
+            unresolved.english_fallback,
+            BTreeMap::from([("TOUGH_1".to_string(), BTreeSet::from(["fr_FR".to_string()]))])
+        );
     }
 
     #[test]

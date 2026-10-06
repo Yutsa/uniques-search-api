@@ -149,7 +149,7 @@ mod tests {
                 .is_empty()
         );
         let mut catalog = KeywordCatalog::default();
-        catalog.insert("RESUPPLY_LOW", "fr_FR", "Ravitailler");
+        catalog.insert("RESUPPLY_LOW", "fr_FR", "Ravitaillez");
         catalog.save_in(dir.path()).unwrap();
         assert_eq!(KeywordCatalog::load_from_dir(dir.path()).unwrap(), catalog);
     }

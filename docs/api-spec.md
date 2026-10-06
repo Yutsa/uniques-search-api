@@ -331,14 +331,15 @@ body is built once when the index loads.
 | `{T}` | `Épuisez-moi` | `Exhaust me` |
 | `{D}` or `{D} :` | `Défaussez-moi de la Réserve` | `Discard me from Reserve` |
 | `{I} À Midi —` | `À Midi —` (leading `{I}` removed) | `At Noon —` |
-| `[RESUPPLY_LOW].` | **`Ravitailler`** `.` | **`Resupply`** `.` |
+| `[RESUPPLY_LOW].` | **`Ravitaillez`** `.` | **`Resupply`** `.` |
 | `Si j'ai au moins 1 boost :` | `Si j'ai au moins 1 boost` | `If I have at least 1 boost` |
 
 - Symbol labels exist in `de_DE`, `en_US`, `es_ES`, `fr_FR` and `it_IT`; other locales get English.
 - `[CODE]` keywords are printed from the index's `keywords.json` (see
   [ALL_SETS index format](ALL_SETS-index-format.md#keywordsjson)). A code missing in a locale
   falls back to its `en_US` name; a code missing from the file is left as written (`[CODE]`).
-- Non-breaking and repeated spaces become one space; trailing spaces and `:` are removed.
+- Non-breaking and repeated spaces become one space, including inside keyword names
+  (`Tough\u00a01` → `Tough 1`); trailing spaces and `:` are removed.
   Symbols inside a sentence (`{J} Piochez une carte.`) are kept.
 
 ```
@@ -427,7 +428,7 @@ Formatted texts are arrays of segments rather than Markdown or HTML, so clients 
 without parsing or escaping:
 
 ```json
-[{ "text": "Lancez un dé. Sur 4+, " }, { "text": "Ravitailler", "bold": true }, { "text": "." }]
+[{ "text": "Lancez un dé. Sur 4+, " }, { "text": "Ravitaillez", "bold": true }, { "text": "." }]
 ```
 
 | Field  | Type    | Description                                   |
