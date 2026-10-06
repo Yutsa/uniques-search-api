@@ -1,5 +1,8 @@
 # HTTP API summary
 
+Responses are gzipped when the request sends `Accept-Encoding: gzip`. The `/api/v2/effects`
+body is gzipped once when the index loads; other responses are compressed per request.
+
 ## `GET /api/v2/cards` Parameters
 
 ### Core filters

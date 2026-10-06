@@ -3,8 +3,12 @@ use std::collections::BTreeMap;
 use index_core::card::LocaleText;
 use index_core::idgd_catalog::{IdGdCatalog, IdGdCatalogEntry};
 use index_core::keyword_catalog::KeywordCatalog;
+use std::io::Write;
+
 use anyhow::Context;
 use axum::body::Bytes;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 
 use crate::http::api::effect_text::format_effect_part_translations;
 
@@ -40,6 +44,13 @@ pub fn build_effects_list(catalog: &IdGdCatalog, keywords: &KeywordCatalog) -> E
 pub fn serialize_effects_list(response: &EffectsListResponse) -> anyhow::Result<Bytes> {
     let bytes = serde_json::to_vec(response).context("serialize effects list")?;
     Ok(Bytes::from(bytes))
+}
+
+/// Gzip the serialized effects list once at startup (best compression, the body never changes).
+pub fn gzip_effects_body(body: &[u8]) -> anyhow::Result<Bytes> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(body).context("gzip effects list")?;
+    Ok(Bytes::from(encoder.finish().context("gzip effects list")?))
 }
 
 fn effect_part_with_region(
@@ -138,10 +149,9 @@ mod tests {
             .translations
             .insert("fr_FR".to_string(), locale_text("fr_FR", "[]"));
         let mut output = entry(42, "OUTPUT", "[RESUPPLY_LOW].", true, false);
-        output.translations.insert(
-            "fr_FR".to_string(),
-            locale_text("fr_FR", "[RESUPPLY_LOW]."),
-        );
+        output
+            .translations
+            .insert("fr_FR".to_string(), locale_text("fr_FR", "[RESUPPLY_LOW]."));
         let catalog = IdGdCatalog {
             set: "TEST".to_string(),
             entries: vec![condition, output],

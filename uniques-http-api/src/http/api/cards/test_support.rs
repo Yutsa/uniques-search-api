@@ -265,6 +265,7 @@ pub(crate) fn test_state() -> AppState {
         name_search_index,
         family_lookup_index,
         family_span_groups,
+        effects_body_gzip: None,
         card_text_parts: Default::default(),
     };
 
@@ -363,6 +364,7 @@ pub(crate) fn test_state_with_sets() -> AppState {
         name_search_index,
         family_lookup_index,
         family_span_groups,
+        effects_body_gzip: None,
         card_text_parts: Default::default(),
     };
 

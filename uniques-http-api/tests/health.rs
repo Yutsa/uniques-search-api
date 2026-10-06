@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::Path;
 
 use axum::body::Body;
@@ -55,4 +56,53 @@ async fn cors_allows_any_origin() {
             .and_then(|v| v.to_str().ok()),
         Some("*")
     );
+}
+
+async fn get(uri: &str, accept_gzip: bool) -> (axum::http::HeaderMap, Vec<u8>) {
+    let mut builder = axum::http::Request::builder().uri(uri);
+    if accept_gzip {
+        builder = builder.header(axum::http::header::ACCEPT_ENCODING, "gzip");
+    }
+    let response = app(test_server())
+        .oneshot(builder.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{uri}");
+    let headers = response.headers().clone();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (headers, body.to_vec())
+}
+
+fn gunzip(body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(body)
+        .read_to_end(&mut out)
+        .expect("valid gzip body");
+    out
+}
+
+#[tokio::test]
+async fn responses_are_gzipped_when_the_client_accepts_it() {
+    // `/api/v2/effects` is gzipped once at load; `/api/v2/cards` by the compression layer.
+    for uri in ["/api/v2/effects", "/api/v2/cards?limit=10"] {
+        let (plain_headers, plain_body) = get(uri, false).await;
+        assert!(
+            plain_headers
+                .get(axum::http::header::CONTENT_ENCODING)
+                .is_none(),
+            "{uri}"
+        );
+        let plain: serde_json::Value = serde_json::from_slice(&plain_body).unwrap();
+
+        let (gzip_headers, gzip_body) = get(uri, true).await;
+        assert_eq!(
+            gzip_headers
+                .get(axum::http::header::CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+            Some("gzip"),
+            "{uri}"
+        );
+        let decoded: serde_json::Value = serde_json::from_slice(&gunzip(&gzip_body)).unwrap();
+        assert_eq!(decoded, plain, "{uri}");
+    }
 }

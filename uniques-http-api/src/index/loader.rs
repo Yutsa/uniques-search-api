@@ -20,7 +20,7 @@ use crate::collections::CollectionStore;
 use crate::config::Settings;
 use crate::formats::{load_format_index, FormatIndex};
 use crate::http::api::effect_text::CardTextParts;
-use crate::http::api::effects::{build_effects_list, serialize_effects_list};
+use crate::http::api::effects::{build_effects_list, gzip_effects_body, serialize_effects_list};
 use crate::http::state::{AppState, QuerySnapshot};
 use crate::index::UniquesIndex;
 
@@ -423,12 +423,14 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
 
     let effects_list = build_effects_list(&idgd_catalog, &keywords);
     let effects_body = Arc::new(serialize_effects_list(&effects_list)?);
+    let effects_body_gzip = Arc::new(gzip_effects_body(&effects_body)?);
     eprintln!(
-        "  effects list: {} triggers, {} conditions, {} outputs ({} bytes JSON)",
+        "  effects list: {} triggers, {} conditions, {} outputs ({} bytes JSON, {} bytes gzip)",
         effects_list.triggers.len(),
         effects_list.conditions.len(),
         effects_list.output.len(),
-        effects_body.len()
+        effects_body.len(),
+        effects_body_gzip.len()
     );
 
     eprintln!("index load complete");
@@ -451,6 +453,7 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         family_lookup_index,
         family_span_groups,
         effects_body,
+        effects_body_gzip: Some(effects_body_gzip),
         card_text_parts,
     })
 }
