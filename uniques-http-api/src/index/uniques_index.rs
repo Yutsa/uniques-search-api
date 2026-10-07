@@ -13,8 +13,6 @@ use index_core::path::parse_card_reference;
 use index_core::stat_index::StatField;
 use roaring::RoaringBitmap;
 
-use super::effect_lines::EffectLineTexts;
-
 use super::loader::{
     FamilyLookupIndex, FamilyResolveError, FamilySpanGroup, FactionsSummary, IndexManifest,
     NameSearchIndex, SetBitmaps, StatsSummary,
@@ -45,8 +43,6 @@ pub struct UniquesIndex {
     pub effects_body: Arc<Bytes>,
     /// `effects_body` gzipped once at load; `None` serves the plain body.
     pub effects_body_gzip: Option<Arc<Bytes>>,
-    /// Raw and formatted texts of every distinct ability line (`mainEffect`, `mainEffectFormatted`...).
-    pub effect_lines: EffectLineTexts,
 }
 
 #[derive(Debug)]

@@ -165,25 +165,13 @@ mod tests {
 
         let condition = &value["conditions"][0];
         assert_eq!(condition["text"]["fr_FR"], "[]");
-        assert_eq!(
-            condition["formattedText"]["fr_FR"],
-            serde_json::json!([{ "text": "Sans condition" }])
-        );
-        assert_eq!(
-            condition["formattedText"]["en_US"],
-            serde_json::json!([{ "text": "No condition" }])
-        );
+        assert_eq!(condition["formattedText"]["fr_FR"], "Sans condition");
+        assert_eq!(condition["formattedText"]["en_US"], "No condition");
 
         let output = &value["output"][0];
         assert_eq!(output["text"]["fr_FR"], "[RESUPPLY_LOW].");
-        assert_eq!(
-            output["formattedText"]["fr_FR"],
-            serde_json::json!([{ "text": "Ravitaillez", "bold": true }, { "text": "." }])
-        );
-        assert_eq!(
-            output["formattedText"]["en_US"],
-            serde_json::json!([{ "text": "Resupply", "bold": true }, { "text": "." }])
-        );
+        assert_eq!(output["formattedText"]["fr_FR"], "**Ravitaillez**.");
+        assert_eq!(output["formattedText"]["en_US"], "**Resupply**.");
     }
 
     #[test]

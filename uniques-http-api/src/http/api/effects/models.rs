@@ -19,7 +19,7 @@ pub struct EffectsListResponse {
 pub struct EffectPartWithRegion {
     pub id_gd: u32,
     pub text: BTreeMap<String, String>,
-    /// Readable version of `text`, per locale (see `effect_text::format_effect_part`).
+    /// Readable version of `text` in Markdown, per locale (see `effect_text::format_effect_part`).
     pub formatted_text: BTreeMap<String, FormattedText>,
     pub is_echo: bool,
     pub is_main: bool,

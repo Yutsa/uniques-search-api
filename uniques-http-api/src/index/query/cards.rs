@@ -369,16 +369,6 @@ pub(crate) fn card_v2_from_index(
         .unwrap_or("")
         .to_string();
 
-    let main_groups = [
-        view.main_effect_group(0),
-        view.main_effect_group(1),
-        view.main_effect_group(2),
-    ];
-    let main_effect = state.effect_lines.card_effect(idgd_by_id, &main_groups);
-    let echo_effect = state
-        .effect_lines
-        .card_effect(idgd_by_id, &[view.echo_effect()]);
-
     Ok(CardV2 {
         reference,
         name: family.name.clone(),
@@ -401,10 +391,8 @@ pub(crate) fn card_v2_from_index(
             code: faction_code,
             name: faction_name,
         },
-        main_effect: main_effect.raw,
-        echo_effect: echo_effect.raw,
-        main_effect_formatted: main_effect.formatted,
-        echo_effect_formatted: echo_effect.formatted,
+        main_effect: build_main_effect_localized(idgd_by_id, &view),
+        echo_effect: build_echo_effect_localized(idgd_by_id, &view),
         debug_bga_trigram: debug_bga_trigram.then(|| build_debug_bga_trigram(&view)),
     })
 }
@@ -554,6 +542,112 @@ fn format_tco_triplet([t, c, o]: [u16; 3]) -> Option<String> {
     Some(format!("{t}/{c}/{o}"))
 }
 
+fn build_main_effect_localized(
+    idgd_by_id: &BTreeMap<u32, &IdGdCatalogEntry>,
+    view: &index_core::compact::CompactCardView<'_>,
+) -> BTreeMap<String, String> {
+    let groups: [[u16; 3]; 3] = [
+        view.main_effect_group(0),
+        view.main_effect_group(1),
+        view.main_effect_group(2),
+    ];
+
+    let mut locales: BTreeMap<String, ()> = BTreeMap::new();
+    locales.insert("en_US".to_string(), ());
+    for [t, c, o] in groups {
+        for id in [t, c, o] {
+            if id == 0 {
+                continue;
+            }
+            if let Some(entry) = idgd_by_id.get(&(id as u32)) {
+                for k in entry.translations.keys() {
+                    locales.insert(k.clone(), ());
+                }
+            }
+        }
+    }
+
+    let mut out = BTreeMap::new();
+    for locale in locales.keys() {
+        let mut lines: Vec<String> = Vec::new();
+        for [t, c, o] in groups {
+            if let Some(line) = build_effect_line_localized(idgd_by_id, [t, c, o], locale) {
+                lines.push(line);
+            }
+        }
+        if !lines.is_empty() {
+            out.insert(locale.clone(), lines.join("  "));
+        }
+    }
+    out
+}
+
+fn build_echo_effect_localized(
+    idgd_by_id: &BTreeMap<u32, &IdGdCatalogEntry>,
+    view: &index_core::compact::CompactCardView<'_>,
+) -> BTreeMap<String, String> {
+    let [t, c, o] = view.echo_effect();
+
+    let mut locales: BTreeMap<String, ()> = BTreeMap::new();
+    locales.insert("en_US".to_string(), ());
+    for id in [t, c, o] {
+        if id == 0 {
+            continue;
+        }
+        if let Some(entry) = idgd_by_id.get(&(id as u32)) {
+            for k in entry.translations.keys() {
+                locales.insert(k.clone(), ());
+            }
+        }
+    }
+
+    let mut out = BTreeMap::new();
+    for locale in locales.keys() {
+        if let Some(line) = build_effect_line_localized(idgd_by_id, [t, c, o], locale) {
+            out.insert(locale.clone(), line);
+        }
+    }
+    out
+}
+
+fn build_effect_line_localized(
+    idgd_by_id: &BTreeMap<u32, &IdGdCatalogEntry>,
+    [t, c, o]: [u16; 3],
+    locale: &str,
+) -> Option<String> {
+    if t == 0 && c == 0 && o == 0 {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for id in [t, c, o] {
+        if id == 0 {
+            continue;
+        }
+        let text = idgd_by_id
+            .get(&(id as u32))
+            .map(|entry| pick_translation(&entry.translations, locale))
+            .unwrap_or_default();
+        if !text.is_empty() {
+            parts.push(text);
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" "))
+    }
+}
+
+fn pick_translation(map: &BTreeMap<String, index_core::card::LocaleText>, locale: &str) -> String {
+    if let Some(t) = map.get(locale) {
+        return t.text.clone();
+    }
+    if let Some(t) = map.get("en_US") {
+        return t.text.clone();
+    }
+    map.values().next().map(|t| t.text.clone()).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,7 +656,6 @@ mod tests {
     use crate::index::loader::{SET_CORE, SET_COREKS};
     use crate::http::api::cards::models::EffectCombineMode;
     use std::collections::HashMap;
-
     #[test]
     fn empty_name_treated_as_no_filter() {
         let state = test_state();

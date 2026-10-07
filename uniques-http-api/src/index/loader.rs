@@ -20,7 +20,6 @@ use crate::collections::CollectionStore;
 use crate::config::Settings;
 use crate::formats::{load_format_index, FormatIndex};
 use crate::http::api::effect_text::unresolved_keywords;
-use crate::index::effect_lines::EffectLineTexts;
 use crate::http::api::effects::{build_effects_list, gzip_effects_body, serialize_effects_list};
 use crate::http::state::{AppState, QuerySnapshot};
 use crate::index::UniquesIndex;
@@ -433,14 +432,6 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         eprintln!("  warning: keyword {code} printed in English for {locales}");
     }
 
-    let started = std::time::Instant::now();
-    let effect_lines = EffectLineTexts::build(&idgd_catalog, &keywords, &cards);
-    eprintln!(
-        "  effect lines: {} distinct ability lines precomputed in {:?}",
-        effect_lines.len(),
-        started.elapsed()
-    );
-
     let effects_list = build_effects_list(&idgd_catalog, &keywords);
     let effects_body = Arc::new(serialize_effects_list(&effects_list)?);
     let effects_body_gzip = Arc::new(gzip_effects_body(&effects_body)?);
@@ -474,7 +465,6 @@ pub fn load_uniques_index_from(storage: &impl IndexStorage) -> Result<UniquesInd
         family_span_groups,
         effects_body,
         effects_body_gzip: Some(effects_body_gzip),
-        effect_lines,
     })
 }
 

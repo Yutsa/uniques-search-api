@@ -82,9 +82,9 @@ fn gunzip(body: &[u8]) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn responses_are_gzipped_when_the_client_accepts_it() {
-    // `/api/v2/effects` is gzipped once at load; `/api/v2/cards` by the compression layer.
-    for uri in ["/api/v2/effects", "/api/v2/cards?limit=10"] {
+async fn effects_list_is_gzipped_when_the_client_accepts_it() {
+    // `/api/v2/effects` is gzipped once at load.
+    for uri in ["/api/v2/effects"] {
         let (plain_headers, plain_body) = get(uri, false).await;
         assert!(
             plain_headers

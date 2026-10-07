@@ -505,8 +505,8 @@ fn load_idgd_catalog(path: &Path) -> anyhow::Result<IdGdCatalog> {
 ### Purpose
 
 Printed names of the keywords that effect texts reference as `[CODE]` (e.g. `[FLEETING]`), per
-locale. The HTTP API uses it to print keywords in bold in the formatted effect texts
-(`formattedText`, `mainEffectFormatted`, `echoEffectFormatted`).
+locale. The HTTP API uses it to print keywords in bold in the `formattedText` of
+`GET /api/v2/effects`.
 
 ### Source
 

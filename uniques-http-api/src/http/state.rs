@@ -208,7 +208,6 @@ mod tests {
             family_span_groups: vec![],
             effects_body: Arc::new(Bytes::from_static(b"[]")),
             effects_body_gzip: None,
-            effect_lines: Default::default(),
         }
     }
 

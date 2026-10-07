@@ -1,34 +1,32 @@
-//! Readable versions of the raw effect texts, as lists of segments.
+//! Readable versions of the effect parts listed by `GET /api/v2/effects`, in Markdown.
 //!
 //! Raw texts carry Altered markup: `[FLEETING]` keyword codes, `[]` for an empty part, `{H}`-style
-//! symbols. The formatted versions print keyword codes as their bold printed name (from the
-//! index's `keywords.json`) and tidy spaces. Segments let clients render bold without parsing
-//! markup or injecting HTML.
+//! symbols. The formatted versions label bare symbols, print keyword codes as their bold printed
+//! name (from the index's `keywords.json`), tidy spaces and escape the characters Markdown would
+//! interpret. Texts are built as segments, then rendered to Markdown once.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use index_core::card::LocaleText;
 use index_core::idgd_catalog::IdGdCatalog;
 use index_core::keyword_catalog::KeywordCatalog;
-use serde::Serialize;
 
-/// One run of text; `bold` is omitted from JSON when false.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TextSegment {
-    pub text: String,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub bold: bool,
+/// One run of text, rendered as `**text**` when bold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TextSegment {
+    text: String,
+    bold: bool,
 }
 
 impl TextSegment {
-    pub fn plain(text: impl Into<String>) -> Self {
+    fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             bold: false,
         }
     }
 
-    pub fn bold(text: impl Into<String>) -> Self {
+    fn bold(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             bold: true,
@@ -36,9 +34,12 @@ impl TextSegment {
     }
 }
 
-pub type FormattedText = Vec<TextSegment>;
+type Segments = Vec<TextSegment>;
 
-/// Locale used when a text or keyword name is missing in the requested locale.
+/// A formatted text in Markdown: plain text with keywords in `**bold**`.
+pub type FormattedText = String;
+
+/// Locale used when a keyword name is missing in the requested locale.
 const FALLBACK_LOCALE: &str = "en_US";
 
 /// Labels for effect parts that are a bare symbol or empty. Card data has no text for these,
@@ -106,6 +107,15 @@ pub fn format_effect_part(
     locale: &str,
     keywords: &KeywordCatalog,
 ) -> FormattedText {
+    markdown(&effect_part_segments(raw, element_type, locale, keywords))
+}
+
+fn effect_part_segments(
+    raw: &str,
+    element_type: &str,
+    locale: &str,
+    keywords: &KeywordCatalog,
+) -> Segments {
     let spaced = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if spaced == "[]" {
         return match element_type {
@@ -138,60 +148,6 @@ pub fn format_effect_part(
         })
         .collect();
     tidy(segments)
-}
-
-/// Effect part as printed on a card (`mainEffectFormatted` / `echoEffectFormatted`): `[CODE]`
-/// keywords → bold printed name, `[]` dropped, repeated spaces collapsed. Symbols such as `{J}`
-/// and non-breaking spaces are kept as printed.
-pub fn format_card_part(raw: &str, locale: &str, keywords: &KeywordCatalog) -> FormattedText {
-    tidy(keyword_segments(raw, locale, keywords))
-}
-
-/// One card ability line: its formatted parts separated by a space, as the raw text joins them.
-pub fn join_card_parts<'a>(parts: impl IntoIterator<Item = &'a FormattedText>) -> FormattedText {
-    let mut out = Vec::new();
-    for part in parts {
-        if !out.is_empty() {
-            out.push(TextSegment::plain(" "));
-        }
-        out.extend(part.iter().cloned());
-    }
-    tidy(out)
-}
-
-/// Card-text formatting of every idGd, per locale, computed once at index load.
-#[derive(Debug, Default)]
-pub struct CardTextParts {
-    by_id_gd: BTreeMap<u32, BTreeMap<String, FormattedText>>,
-}
-
-impl CardTextParts {
-    pub fn build(catalog: &IdGdCatalog, keywords: &KeywordCatalog) -> Self {
-        let by_id_gd = catalog
-            .entries
-            .iter()
-            .map(|entry| {
-                let per_locale = entry
-                    .translations
-                    .iter()
-                    .map(|(locale, t)| {
-                        (locale.clone(), format_card_part(&t.text, locale, keywords))
-                    })
-                    .collect();
-                (entry.id_gd, per_locale)
-            })
-            .collect();
-        Self { by_id_gd }
-    }
-
-    /// Formatted part for `locale`, with the same `en_US` then first-locale fallback as the raw text.
-    pub fn get(&self, id_gd: u32, locale: &str) -> Option<&FormattedText> {
-        let per_locale = self.by_id_gd.get(&id_gd)?;
-        per_locale
-            .get(locale)
-            .or_else(|| per_locale.get(FALLBACK_LOCALE))
-            .or_else(|| per_locale.values().next())
-    }
 }
 
 /// Picker formatting of every translation of an effect part.
@@ -255,7 +211,7 @@ fn is_code_char(c: char) -> bool {
 
 /// Split `text` on `[CODE]` keyword codes. Known codes become bold printed names, `[]` is dropped,
 /// unknown codes are left as written.
-fn keyword_segments(text: &str, locale: &str, keywords: &KeywordCatalog) -> FormattedText {
+fn keyword_segments(text: &str, locale: &str, keywords: &KeywordCatalog) -> Segments {
     let mut out = Vec::new();
     let mut plain = String::new();
     let mut rest = text;
@@ -297,8 +253,8 @@ fn keyword_segments(text: &str, locale: &str, keywords: &KeywordCatalog) -> Form
 
 /// Collapse runs of spaces (also across segments), trim both ends, drop empty segments and merge
 /// neighbours with the same style.
-fn tidy(segments: FormattedText) -> FormattedText {
-    let mut out: FormattedText = Vec::with_capacity(segments.len());
+fn tidy(segments: Segments) -> Segments {
+    let mut out: Segments = Vec::with_capacity(segments.len());
     for seg in segments {
         let mut text = collapse_spaces(&seg.text);
         let prev_ends_with_space = out.last().is_some_and(|p| p.text.ends_with(' '));
@@ -339,6 +295,56 @@ fn collapse_spaces(text: &str) -> String {
     out
 }
 
+/// Render segments to Markdown: bold as `**text**`, Markdown syntax in the text escaped so that it
+/// displays as written (`[UNKNOWN_CODE]`, `*`, a leading `-` or `1.`...).
+fn markdown(segments: &[TextSegment]) -> String {
+    let len = segments.iter().map(|s| s.text.len() + 4).sum();
+    let mut out = String::with_capacity(len);
+    for seg in segments {
+        if seg.bold {
+            out.push_str("**");
+        }
+        escape_inline(&seg.text, &mut out);
+        if seg.bold {
+            out.push_str("**");
+        }
+    }
+    escape_line_start(&mut out);
+    out
+}
+
+/// Escape the characters that start inline Markdown: emphasis, code, links, HTML, strikethrough.
+fn escape_inline(text: &str, out: &mut String) {
+    for c in text.chars() {
+        if matches!(c, '\\' | '*' | '_' | '`' | '[' | ']' | '<' | '>' | '~') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+}
+
+/// Escape a line start that Markdown reads as a block: heading (`# `), list (`- `, `+ `, `1. `,
+/// `1) `). `>`, `*` and `_` are already escaped everywhere.
+fn escape_line_start(text: &mut String) {
+    let ends_marker = |rest: &str| rest.is_empty() || rest.starts_with(' ');
+    let hashes = text.bytes().take_while(|&b| b == b'#').count();
+    if (1..=6).contains(&hashes) && ends_marker(&text[hashes..]) {
+        text.insert(0, '\\');
+        return;
+    }
+    if text.starts_with(['-', '+']) && ends_marker(&text[1..]) {
+        text.insert(0, '\\');
+        return;
+    }
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    if (1..=9).contains(&digits)
+        && text[digits..].starts_with(['.', ')'])
+        && ends_marker(&text[digits + 1..])
+    {
+        text.insert(digits, '\\');
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,63 +372,44 @@ mod tests {
         format_effect_part(raw, element_type, locale, &keywords())
     }
 
-    fn plain(text: &str) -> FormattedText {
-        vec![TextSegment::plain(text)]
-    }
-
     #[test]
     fn empty_condition_is_labelled_no_condition() {
-        assert_eq!(picker("[]", "CONDITION", "fr_FR"), plain("Sans condition"));
-        assert_eq!(picker("[]", "CONDITION", "en_US"), plain("No condition"));
-        assert_eq!(
-            picker(" [] ", "CONDITION", "de_DE"),
-            plain("Keine Bedingung")
-        );
+        assert_eq!(picker("[]", "CONDITION", "fr_FR"), "Sans condition");
+        assert_eq!(picker("[]", "CONDITION", "en_US"), "No condition");
+        assert_eq!(picker(" [] ", "CONDITION", "de_DE"), "Keine Bedingung");
     }
 
     #[test]
-    fn empty_trigger_or_output_has_no_segments() {
-        assert_eq!(picker("[]", "TRIGGER", "fr_FR"), Vec::new());
-        assert_eq!(picker("[]", "OUTPUT", "en_US"), Vec::new());
+    fn empty_trigger_or_output_is_an_empty_text() {
+        assert_eq!(picker("[]", "TRIGGER", "fr_FR"), "");
+        assert_eq!(picker("[]", "OUTPUT", "en_US"), "");
     }
 
     #[test]
     fn play_symbols_alone_are_labelled() {
-        assert_eq!(
-            picker("{H}", "TRIGGER", "fr_FR"),
-            plain("Joué depuis la Main")
-        );
-        assert_eq!(
-            picker("{R}", "TRIGGER", "fr_FR"),
-            plain("Joué depuis la Réserve")
-        );
-        assert_eq!(picker("{J}", "TRIGGER", "fr_FR"), plain("Joué de partout"));
-        assert_eq!(picker("{H}", "TRIGGER", "en_US"), plain("Played from Hand"));
-        assert_eq!(
-            picker("{R}", "TRIGGER", "en_US"),
-            plain("Played from Reserve")
-        );
-        assert_eq!(
-            picker("{J}", "TRIGGER", "en_US"),
-            plain("Played from anywhere")
-        );
+        assert_eq!(picker("{H}", "TRIGGER", "fr_FR"), "Joué depuis la Main");
+        assert_eq!(picker("{R}", "TRIGGER", "fr_FR"), "Joué depuis la Réserve");
+        assert_eq!(picker("{J}", "TRIGGER", "fr_FR"), "Joué de partout");
+        assert_eq!(picker("{H}", "TRIGGER", "en_US"), "Played from Hand");
+        assert_eq!(picker("{R}", "TRIGGER", "en_US"), "Played from Reserve");
+        assert_eq!(picker("{J}", "TRIGGER", "en_US"), "Played from anywhere");
     }
 
     #[test]
     fn exhaust_symbol_alone_is_labelled() {
-        assert_eq!(picker("{T}", "TRIGGER", "fr_FR"), plain("Épuisez-moi"));
-        assert_eq!(picker("{T}", "TRIGGER", "en_US"), plain("Exhaust me"));
+        assert_eq!(picker("{T}", "TRIGGER", "fr_FR"), "Épuisez-moi");
+        assert_eq!(picker("{T}", "TRIGGER", "en_US"), "Exhaust me");
     }
 
     #[test]
     fn discard_symbol_alone_is_labelled_with_or_without_colon() {
-        let label = plain("Défaussez-moi de la Réserve");
+        let label = "Défaussez-moi de la Réserve";
         assert_eq!(picker("{D}", "TRIGGER", "fr_FR"), label);
         assert_eq!(picker("{D} :", "TRIGGER", "fr_FR"), label);
         assert_eq!(picker("{D}\u{a0}:", "TRIGGER", "fr_FR"), label);
         assert_eq!(
             picker("{D}:", "TRIGGER", "en_US"),
-            plain("Discard me from Reserve")
+            "Discard me from Reserve"
         );
     }
 
@@ -430,7 +417,7 @@ mod tests {
     fn symbols_inside_a_text_are_kept() {
         assert_eq!(
             picker("{J} Piochez une carte.", "OUTPUT", "fr_FR"),
-            plain("{J} Piochez une carte.")
+            "{J} Piochez une carte."
         );
     }
 
@@ -438,9 +425,9 @@ mod tests {
     fn leading_i_symbol_is_dropped() {
         assert_eq!(
             picker("{I} Lorsque je vais en Réserve —", "TRIGGER", "fr_FR"),
-            plain("Lorsque je vais en Réserve —")
+            "Lorsque je vais en Réserve —"
         );
-        assert_eq!(picker("{I}", "TRIGGER", "fr_FR"), Vec::new());
+        assert_eq!(picker("{I}", "TRIGGER", "fr_FR"), "");
     }
 
     #[test]
@@ -455,7 +442,7 @@ mod tests {
         for (locale, name) in names {
             assert_eq!(
                 picker("[RESUPPLY_LOW].", "OUTPUT", locale),
-                vec![TextSegment::bold(name), TextSegment::plain(".")],
+                format!("**{name}**."),
                 "{locale}"
             );
         }
@@ -469,11 +456,7 @@ mod tests {
                 "OUTPUT",
                 "fr_FR"
             ),
-            vec![
-                TextSegment::plain("Vous pouvez cibler un Personnage. Il gagne "),
-                TextSegment::bold("Fugace"),
-                TextSegment::plain("."),
-            ]
+            "Vous pouvez cibler un Personnage. Il gagne **Fugace**."
         );
     }
 
@@ -481,7 +464,7 @@ mod tests {
     fn unknown_keyword_code_is_left_as_written() {
         assert_eq!(
             picker("Je suis [UNKNOWN_CODE].", "OUTPUT", "fr_FR"),
-            plain("Je suis [UNKNOWN_CODE].")
+            r"Je suis \[UNKNOWN\_CODE\]."
         );
     }
 
@@ -491,13 +474,34 @@ mod tests {
         k.insert("GIFT", "en_US", "Gift");
         assert_eq!(
             format_effect_part("[GIFT]", "OUTPUT", "fr_FR", &k),
-            vec![TextSegment::bold("Gift")]
+            "**Gift**"
         );
     }
 
     #[test]
     fn bracketed_text_that_is_not_a_code_is_kept() {
-        assert_eq!(picker("a [b] c", "OUTPUT", "en_US"), plain("a [b] c"));
+        assert_eq!(picker("a [b] c", "OUTPUT", "en_US"), r"a \[b\] c");
+    }
+
+    #[test]
+    fn markdown_syntax_in_the_text_is_escaped() {
+        assert_eq!(
+            picker("x*2 _a_ `c` <b> ~s~ \\ 4+", "OUTPUT", "en_US"),
+            r"x\*2 \_a\_ \`c\` \<b\> \~s\~ \\ 4+"
+        );
+    }
+
+    #[test]
+    fn block_markers_at_the_start_are_escaped() {
+        assert_eq!(picker("- a", "OUTPUT", "en_US"), r"\- a");
+        assert_eq!(picker("+ a", "OUTPUT", "en_US"), r"\+ a");
+        assert_eq!(picker("# a", "OUTPUT", "en_US"), r"\# a");
+        assert_eq!(picker("12. a", "OUTPUT", "en_US"), r"12\. a");
+        assert_eq!(picker("1) a", "OUTPUT", "en_US"), r"1\) a");
+        // Not a block marker: left as is.
+        assert_eq!(picker("+1 boost", "OUTPUT", "en_US"), "+1 boost");
+        assert_eq!(picker("1.5 a", "OUTPUT", "en_US"), "1.5 a");
+        assert_eq!(picker("#1 a", "OUTPUT", "en_US"), "#1 a");
     }
 
     #[test]
@@ -508,7 +512,7 @@ mod tests {
                 "CONDITION",
                 "fr_FR"
             ),
-            plain("Si j'ai au moins 1 boost")
+            "Si j'ai au moins 1 boost"
         );
         assert_eq!(
             picker(
@@ -516,7 +520,7 @@ mod tests {
                 "TRIGGER",
                 "fr_FR"
             ),
-            plain("Lorsque mon Expédition échoue —")
+            "Lorsque mon Expédition échoue —"
         );
     }
 
@@ -531,18 +535,10 @@ mod tests {
     }
 
     #[test]
-    fn non_breaking_space_inside_keyword_name_is_normalized_in_pickers_only() {
+    fn non_breaking_space_inside_keyword_name_is_normalized() {
         assert_eq!(
             picker("I am [TOUGH_1].", "OUTPUT", "en_US"),
-            vec![
-                TextSegment::plain("I am "),
-                TextSegment::bold("Tough 1"),
-                TextSegment::plain("."),
-            ]
-        );
-        assert_eq!(
-            format_card_part("I am [TOUGH_1].", "en_US", &keywords())[1],
-            TextSegment::bold("Tough\u{a0}1")
+            "I am **Tough 1**."
         );
     }
 
@@ -591,52 +587,6 @@ mod tests {
         assert_eq!(
             unresolved.english_fallback,
             BTreeMap::from([("TOUGH_1".to_string(), BTreeSet::from(["fr_FR".to_string()]))])
-        );
-    }
-
-    #[test]
-    fn card_part_drops_empty_condition_and_keeps_symbols() {
-        let k = keywords();
-        assert_eq!(format_card_part("[]", "fr_FR", &k), Vec::new());
-        assert_eq!(
-            format_card_part("{D}\u{a0}:", "fr_FR", &k),
-            plain("{D}\u{a0}:")
-        );
-        assert_eq!(
-            format_card_part("Il gagne [FLEETING].", "en_US", &k),
-            vec![
-                TextSegment::plain("Il gagne "),
-                TextSegment::bold("Fleeting"),
-                TextSegment::plain("."),
-            ]
-        );
-    }
-
-    #[test]
-    fn card_line_joins_parts_with_one_space() {
-        let k = keywords();
-        let parts = [
-            format_card_part("{J}", "fr_FR", &k),
-            format_card_part("[]", "fr_FR", &k),
-            format_card_part("Il gagne [FLEETING].", "fr_FR", &k),
-        ];
-        assert_eq!(
-            join_card_parts(&parts),
-            vec![
-                TextSegment::plain("{J} Il gagne "),
-                TextSegment::bold("Fugace"),
-                TextSegment::plain("."),
-            ]
-        );
-    }
-
-    #[test]
-    fn segments_serialize_bold_only_when_set() {
-        let json = serde_json::to_value(vec![TextSegment::bold("Fugace"), TextSegment::plain(".")])
-            .unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!([{ "text": "Fugace", "bold": true }, { "text": "." }])
         );
     }
 }
